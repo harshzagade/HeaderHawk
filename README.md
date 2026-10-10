@@ -5,6 +5,10 @@ header to add for every miss. Two modes: **live** (fetch a URL) and
 **offline** (analyze headers saved from curl / Burp / ZAP without touching the
 network again).
 
+> **In simple words:** every website sends invisible name tags with each reply.
+> HeaderHawk reads them, grades the site's safety setup from A+ to F, and tells
+> you exactly which tags to add.
+
 Stdlib-only Python. No dependencies, no API keys, nothing to install beyond
 Python 3.9+.
 
@@ -108,6 +112,11 @@ GRADE: F   (score 39/100)
 
 Analyzed 12 response headers. Cookie flags are out of scope here - see the CookieScope project.
 ```
+
+Real terminal capture of the same run (`headerhawk https://example.com` — a
+documentation-reserved domain):
+
+![HeaderHawk live scan of example.com](assets/screenshots/live-scan.png)
 
 ## What it checks
 
