@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from . import __version__
+from .bulk import BulkResult
 from .checks import GRADES, Finding, Report
 
 
@@ -95,3 +96,59 @@ def render_json(report: Report) -> str:
 def grade_index(grade: str) -> int:
     """Position in the grade ladder (0 = best). Raises ValueError if unknown."""
     return GRADES.index(grade.upper())
+
+
+def render_bulk_table(rows: list[BulkResult], color: bool = True) -> str:
+    """Summary grade table for bulk mode: one row per target."""
+    lines: list[str] = []
+    paint = lambda t, c: _paint(t, c, color)  # noqa: E731
+
+    ok = [r for r in rows if not r.error]
+    failed = [r for r in rows if r.error]
+    width = min(64, max((len(r.url) for r in rows), default=6))
+    header = (f"{'Target':<{width}}  {'HTTP':>4}  {'Grade':<5}  "
+              f"{'Score':>5}  {'High':>4}  {'Med':>3}")
+    rule = "-" * len(header)
+
+    noun = "target" if len(rows) == 1 else "targets"
+    lines.append(paint(f"HeaderHawk v{__version__} - bulk audit ({len(rows)} {noun})", "bold"))
+    lines.append(header)
+    lines.append(rule)
+
+    for row in rows:
+        url = row.url if len(row.url) <= width else row.url[:width - 1] + "\u2026"
+        if row.error:
+            lines.append(f"{url:<{width}}  {'ERR':>4}  "
+                         + paint(f"{'ERROR':<5}", "red")
+                         + f"  {'-':>5}  {'-':>4}  {'-':>3}")
+        else:
+            grade_color = _GRADE_COLOR.get(row.grade, "reset")
+            lines.append(f"{url:<{width}}  {row.status_code:>4}  "
+                         + paint(f"{row.grade:<5}", grade_color)
+                         + f"  {row.score:>5}  {row.high:>4}  {row.med:>3}")
+
+    lines.append(rule)
+
+    if ok:
+        avg = sum(r.score for r in ok) // len(ok)
+        worst = max(ok, key=lambda r: grade_index(r.grade)).grade
+        summary = (f"{len(ok)} audited, avg score {avg}/100, "
+                   f"worst grade {worst}")
+    else:
+        summary = "nothing audited"
+    if failed:
+        summary += f", {len(failed)} unreachable"
+    lines.append(paint(summary, "dim"))
+    for row in failed:
+        lines.append(paint(f"  ! {row.url}: {row.error}", "red"))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_bulk_json(rows: list[BulkResult]) -> str:
+    """Machine-readable bulk report: one object per target."""
+    payload = {
+        "tool": f"HeaderHawk v{__version__}",
+        "target_count": len(rows),
+        "targets": [r.to_dict() for r in rows],
+    }
+    return json.dumps(payload, indent=2) + "\n"

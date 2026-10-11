@@ -7,10 +7,11 @@ import sys
 import urllib.parse
 
 from . import __version__
+from .bulk import audit_targets, read_targets
 from .checks import analyze
 from .fetch import DEFAULT_USER_AGENT, FetchError, fetch
 from .offline import load_headers
-from .report import grade_index, render_json, render_text
+from .report import grade_index, render_bulk_json, render_bulk_table, render_json, render_text
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,14 +38,61 @@ def build_parser() -> argparse.ArgumentParser:
                              "(e.g. --fail-below B for CI gates).")
     parser.add_argument("--raw", action="store_true",
                         help="Print the raw response headers before the report.")
+    parser.add_argument("--bulk", metavar="FILE",
+                        help="Bulk mode: read target URLs from FILE (one per line) "
+                             "and print a summary grade table.")
     parser.add_argument("-o", "--output", metavar="FILE",
                         help="Write the report to FILE instead of stdout.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
 
+def run_bulk(args: argparse.Namespace) -> int:
+    try:
+        targets = read_targets(args.bulk)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    rows = audit_targets(targets, timeout=args.timeout, user_agent=args.user_agent)
+    color = not args.no_color and sys.stdout.isatty()
+    output = render_bulk_json(rows) if args.json else render_bulk_table(rows, color=color)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(output)
+    else:
+        sys.stdout.write(output)
+
+    if args.fail_below:
+        try:
+            threshold = grade_index(args.fail_below)
+        except ValueError:
+            print(f"error: unknown grade {args.fail_below!r} "
+                  f"(use one of A+ A B C D E F).", file=sys.stderr)
+            return 2
+        worst = max((grade_index(r.grade) for r in rows if r.grade), default=0)
+        reasons = []
+        if any(r.error for r in rows):
+            reasons.append(f"{sum(1 for r in rows if r.error)} unreachable")
+        if worst > threshold:
+            reasons.append(f"worst grade below {args.fail_below.upper()}")
+        if reasons:
+            if not args.json:
+                sys.stderr.write("Bulk gate failed: " + ", ".join(reasons) + ".\n")
+            return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.bulk:
+        if args.url or args.headers:
+            print("error: --bulk cannot be combined with a URL or --headers.",
+                  file=sys.stderr)
+            return 2
+        return run_bulk(args)
 
     offline = args.headers is not None or (args.url is None and not sys.stdin.isatty())
     if args.url and args.headers:

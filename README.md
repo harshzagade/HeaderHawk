@@ -50,10 +50,16 @@ headerhawk example.com --raw
 
 # Save the report
 headerhawk example.com -o report.txt
+
+# Bulk mode: audit a list of targets (one URL per line, # comments ok),
+# print a summary grade table (unreachable targets show as ERROR rows)
+headerhawk --bulk targets.txt
+headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
-`--version`. Run `headerhawk --help` for the full list.
+`--fail-below GRADE`, `--bulk FILE`, `--version`. Run `headerhawk --help` for
+the full list.
 
 ## Sample output
 
