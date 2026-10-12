@@ -146,3 +146,54 @@ def test_every_finding_has_fix_or_is_pass():
 ])
 def test_grade_boundaries(score, expected):
     assert grade_for(score) == expected
+
+
+def _dup_findings(headers_map):
+    return [f for f in analyze(headers_map, scheme="https").findings
+            if f.check == "Duplicate headers"]
+
+
+def test_conflicting_duplicates_flagged():
+    report = analyze(SECURE | {"x-frame-options": ["DENY", "SAMEORIGIN"]},
+                     scheme="https")
+    dups = [f for f in report.findings if f.check == "Duplicate headers"]
+    assert len(dups) == 1
+    f = dups[0]
+    assert f.status == "weak" and f.severity == "MED"
+    assert f.score_delta == -5
+    assert "X-Frame-Options" in f.summary
+    assert "conflicting" in f.summary
+    assert f.fix
+    # secure config scored 100; one conflict drops 5
+    assert report.score == 95
+
+
+def test_identical_duplicates_are_info_only():
+    report = analyze(SECURE | {"x-frame-options": ["DENY", "deny "]},
+                     scheme="https")
+    dups = _dup_findings(SECURE | {"x-frame-options": ["DENY", "deny "]})
+    assert len(dups) == 1
+    assert dups[0].status == "info" and dups[0].severity == "INFO"
+    assert dups[0].score_delta == 0
+    assert report.score == 100  # no penalty
+
+
+def test_set_cookie_exempt_from_duplicate_check():
+    headers_map = SECURE | {"set-cookie": ["a=1; Secure", "b=2; Secure"]}
+    assert _dup_findings(headers_map) == []
+
+
+def test_single_headers_produce_no_duplicate_findings():
+    assert _dup_findings(SECURE) == []
+
+
+def test_duplicate_conflicts_reported_per_header_sorted():
+    headers_map = {"x-frame-options": ["DENY", "SAMEORIGIN"],
+                   "referrer-policy": ["no-referrer", "unsafe-url"]}
+    dups = _dup_findings(headers_map)
+    assert [f.header for f in dups] == ["Referrer-Policy", "X-Frame-Options"]
+
+
+def test_duplicate_finding_always_has_fix():
+    dups = _dup_findings({"x-frame-options": ["DENY", "SAMEORIGIN"]})
+    assert all(f.fix for f in dups if f.status == "weak")

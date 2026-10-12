@@ -136,6 +136,7 @@ documentation-reserved domain):
 | Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration) |
 | COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
+| Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 
 Every finding explains **why it matters** and gives the **exact header to add**.
 
@@ -155,7 +156,7 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 ## Development
 
 ```bash
-python3 -m pytest -q     # 50 tests, localhost fixtures only, no real targets
+python3 -m pytest -q     # 66 tests, localhost fixtures only, no real targets
 ```
 
 ## License

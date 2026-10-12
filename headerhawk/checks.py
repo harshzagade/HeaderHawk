@@ -456,6 +456,58 @@ def check_cross_origin_policies(headers: Headers) -> list[Finding]:
     return findings
 
 
+# Headers where multiple instances with different values are normal (not a
+# conflict): each Set-Cookie sets a separate cookie, Vary and Warning combine
+# per RFC, and WWW-Authenticate legitimately carries several challenges.
+_DUPLICATE_EXEMPT = {"set-cookie", "set-cookie2", "vary", "warning",
+                     "www-authenticate"}
+
+
+def check_conflicting_duplicates(headers: Headers) -> list[Finding]:
+    """Flag headers sent more than once with different values.
+
+    fetch() and offline.parse_raw_headers() preserve every instance in order,
+    but every other check only looks at the FIRST value. For headers whose
+    semantics disagree about which instance wins (RFC 7034 forbids duplicate
+    X-Frame-Options precisely because of this), a conflicting duplicate makes
+    the enforced policy unpredictable: an attacker or a misconfigured
+    proxy/CDN that injects a weaker earlier/later instance can silently win.
+    """
+    findings: list[Finding] = []
+    for name in sorted(headers):
+        values = headers[name]
+        if len(values) < 2 or name in _DUPLICATE_EXEMPT:
+            continue
+        normalized = {v.strip().lower() for v in values}
+        display_name = "-".join(part.capitalize() for part in name.split("-"))
+        if len(normalized) == 1:
+            findings.append(Finding(
+                check="Duplicate headers", header=display_name, status="info",
+                severity="INFO", score_delta=0,
+                summary=(f"{display_name} is sent {len(values)} times with the "
+                         "same value: harmless duplication."),
+                detail=("Identical duplicates have no security impact, but they "
+                        "usually mean a header is set in two places (e.g. app "
+                        "plus CDN/proxy) and is worth deduplicating."),
+            ))
+            continue
+        distinct = sorted({v.strip() for v in values})
+        findings.append(Finding(
+            check="Duplicate headers", header=display_name, status="weak",
+            severity="MED", score_delta=-5,
+            summary=(f"{display_name} is sent {len(values)} times with "
+                     f"conflicting values: {', '.join(distinct)}."),
+            detail=("Which instance a browser honors varies (first vs. last), "
+                    "and HeaderHawk's other checks only evaluate the first, so "
+                    "the enforced policy is unpredictable. A misconfigured "
+                    "proxy/CDN, or an attacker who can inject a header "
+                    "earlier/later in the chain, can silently override the "
+                    "intended policy with a weaker one."),
+            fix=f"Send {display_name} exactly once, with the intended value.",
+        ))
+    return findings
+
+
 def check_disclosure(headers: Headers) -> list[Finding]:
     """Server/software version disclosure helps attackers fingerprint the stack."""
     findings: list[Finding] = []
@@ -521,6 +573,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_permissions_policy(headers)
     findings += check_cross_origin_policies(headers)
     findings += check_disclosure(headers)
+    findings += check_conflicting_duplicates(headers)
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))
 
