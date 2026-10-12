@@ -14,6 +14,16 @@ from .offline import load_headers
 from .report import grade_index, render_bulk_json, render_bulk_table, render_json, render_text
 
 
+def _terminal_safe(text: str) -> str:
+    """Render *text* safe for terminal output.
+
+    Replaces non-printable characters (C0/C1 controls, DEL) with visible
+    ``\\xNN`` escapes, so a hostile response header cannot inject ANSI/OSC
+    escape sequences into the user's terminal via ``--raw``.
+    """
+    return "".join(ch if ch.isprintable() else f"\\x{ord(ch):02x}" for ch in text)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="headerhawk",
@@ -134,7 +144,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.raw:
         for name, values in sorted(raw_headers.items()):
             for value in values:
-                chunks.append(f"{name}: {value}")
+                # OWASP review fix (2026-10-11): header names/values are
+                # attacker-influenced, so never print control characters
+                # verbatim to the terminal.
+                chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
     chunks.append(render_json(report) if args.json else render_text(report, color=color))
     output = "\n".join(chunks)

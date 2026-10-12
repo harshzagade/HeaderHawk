@@ -89,3 +89,15 @@ def test_cli_raw_prints_headers_first(server, capsys):
     out = capsys.readouterr().out
     assert "x-content-type-options: nosniff" in out
     assert "GRADE:" in out
+
+
+def test_cli_raw_neutralizes_terminal_injection(tmp_path, capsys):
+    # OWASP review (2026-10-11): a hostile header value carrying an ANSI
+    # escape sequence must not reach the terminal verbatim via --raw.
+    path = tmp_path / "evil.txt"
+    path.write_text("HTTP/1.1 200 OK\nServer: nginx\x1b[2J\x1b[1;1Hpwned\n")
+    code = main(["--headers", str(path), "--raw", "--no-color"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "server: nginx\\x1b[2J\\x1b[1;1Hpwned" in out
