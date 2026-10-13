@@ -11,7 +11,9 @@ from .bulk import audit_targets, read_targets
 from .checks import analyze
 from .fetch import DEFAULT_USER_AGENT, FetchError, fetch
 from .offline import load_headers
-from .report import grade_index, render_bulk_json, render_bulk_table, render_json, render_text
+from .report import (diff_reports, grade_index, render_bulk_json,
+                      render_bulk_table, render_compare, render_compare_json,
+                      render_json, render_text)
 
 
 _VALID_SEVERITIES = ("HIGH", "MED", "LOW", "INFO", "OK")
@@ -72,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bulk", metavar="FILE",
                         help="Bulk mode: read target URLs from FILE (one per line) "
                              "and print a summary grade table.")
+    parser.add_argument("--compare", nargs=2, metavar=("URL_A", "URL_B"),
+                        help="Compare two targets side by side: fetch URL_A and "
+                             "URL_B, and show what changed (regressed, new, "
+                             "resolved, improved findings). Made for before/after "
+                             "hardening checks. --fail-below gates on URL_B.")
     parser.add_argument("-o", "--output", metavar="FILE",
                         help="Write the report to FILE instead of stdout.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -115,15 +122,72 @@ def run_bulk(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_compare(args: argparse.Namespace) -> int:
+    """Fetch two targets and print a before/after diff of their reports."""
+    reports = []
+    for url in args.compare:
+        try:
+            result = fetch(url, timeout=args.timeout, user_agent=args.user_agent)
+        except FetchError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
+        meta = {
+            "url": url,
+            "final_url": result.final_url,
+            "status_code": result.status,
+            "redirects": result.redirects,
+            "elapsed_ms": result.elapsed_ms,
+            "redirect_chain": result.chain,
+        }
+        reports.append(analyze(result.headers, scheme=scheme, meta=meta))
+
+    color = not args.no_color and sys.stdout.isatty()
+    output = (render_compare_json(*reports) if args.json
+              else render_compare(*reports, color=color))
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(output)
+    else:
+        sys.stdout.write(output)
+
+    if args.fail_below:
+        try:
+            threshold = grade_index(args.fail_below)
+        except ValueError:
+            print(f"error: unknown grade {args.fail_below!r} "
+                  f"(use one of A+ A B C D E F).", file=sys.stderr)
+            return 2
+        if grade_index(reports[1].grade) > threshold:
+            if not args.json:
+                sys.stderr.write(
+                    f"Grade {reports[1].grade} (URL_B) is below the required "
+                    f"{args.fail_below.upper()}.\n")
+            return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.bulk:
-        if args.url or args.headers:
-            print("error: --bulk cannot be combined with a URL or --headers.",
-                  file=sys.stderr)
+        if args.url or args.headers or args.compare:
+            print("error: --bulk cannot be combined with a URL, --headers, "
+                  "or --compare.", file=sys.stderr)
             return 2
         return run_bulk(args)
+
+    if args.compare:
+        if args.url or args.headers:
+            print("error: --compare cannot be combined with a URL or --headers.",
+                  file=sys.stderr)
+            return 2
+        if args.raw or args.only:
+            print("error: --raw and --only apply to single-target mode, "
+                  "not --compare.", file=sys.stderr)
+            return 2
+        return run_compare(args)
 
     offline = args.headers is not None or (args.url is None and not sys.stdin.isatty())
     if args.url and args.headers:

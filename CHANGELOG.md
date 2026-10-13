@@ -25,6 +25,10 @@
   `--json` as `redirect_chain`). HTTP→HTTPS upgrades are confirmed as OK;
   HTTPS→HTTP downgrades are HIGH (-10); chains longer than 3 redirects are
   flagged (LOW, -2); a final response still on plain HTTP is MED (-8).
+- `--compare URL_A URL_B`: fetch two targets and print a before/after diff —
+  regressed, new, resolved, and improved findings, with the score change.
+  Made for checking hardening work; `--fail-below` gates on URL_B; `--json`
+  emits both reports plus the diff.
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,

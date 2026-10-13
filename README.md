@@ -55,10 +55,15 @@ headerhawk example.com -o report.txt
 # print a summary grade table (unreachable targets show as ERROR rows)
 headerhawk --bulk targets.txt
 headerhawk --bulk targets.txt --json | jq '.targets[].grade'
+
+# Compare two targets side by side (before/after hardening checks):
+# shows regressed, new, resolved, and improved findings
+headerhawk --compare http://staging.example.com https://example.com
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
-`--fail-below GRADE`, `--only SEV`, `--bulk FILE`, `--version`. Run `headerhawk --help` for
+`--fail-below GRADE`, `--only SEV`, `--bulk FILE`, `--compare URL_A URL_B`,
+`--version`. Run `headerhawk --help` for
 the full list.
 
 ## Sample output

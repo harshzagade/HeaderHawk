@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from . import __version__
 from .bulk import BulkResult
@@ -167,5 +168,148 @@ def render_bulk_json(rows: list[BulkResult]) -> str:
         "tool": f"HeaderHawk v{__version__}",
         "target_count": len(rows),
         "targets": [r.to_dict() for r in rows],
+    }
+    return json.dumps(payload, indent=2) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Compare mode: before/after diff of two reports
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CompareRow:
+    """One changed finding between report A (before) and B (after)."""
+
+    verdict: str  # "regressed" | "new" | "resolved" | "improved"
+    check: str
+    header: str
+    before: Finding | None
+    after: Finding | None
+
+
+def _finding_key(finding: Finding) -> tuple:
+    return (finding.check, finding.header, finding.summary)
+
+
+def _finding_rank(finding: Finding) -> tuple[int, int]:
+    """(severity rank, score delta); higher = better. OK=4 .. HIGH=0."""
+    return (_SEVERITY_ORDER.get(finding.severity, 9), finding.score_delta)
+
+
+def diff_reports(before: Report, after: Report) -> list[CompareRow]:
+    """Diff two reports finding-by-finding.
+
+    Findings are matched on (check, header, summary). A finding present in
+    both with a worse severity/delta in ``after`` is a regression; with a
+    better one, an improvement. Findings only in ``after`` are new; only in
+    ``before`` are resolved. Unchanged findings are omitted.
+    """
+    before_map = {_finding_key(f): f for f in before.findings}
+    after_map = {_finding_key(f): f for f in after.findings}
+    rows: list[CompareRow] = []
+    for key, old in before_map.items():
+        new = after_map.get(key)
+        if new is None:
+            rows.append(CompareRow("resolved", old.check, old.header, old, None))
+        elif _finding_rank(new) > _finding_rank(old):
+            rows.append(CompareRow("improved", old.check, old.header, old, new))
+        elif _finding_rank(new) < _finding_rank(old):
+            rows.append(CompareRow("regressed", old.check, old.header, old, new))
+    for key, new in after_map.items():
+        if key not in before_map:
+            rows.append(CompareRow("new", new.check, new.header, None, new))
+    # Stable, readable order: regressions first, then new, resolved, improved.
+    order = {"regressed": 0, "new": 1, "resolved": 2, "improved": 3}
+    return sorted(rows, key=lambda r: (order[r.verdict], r.check, r.header))
+
+
+def _verdict_line(row: CompareRow) -> str:
+    """One-line description of what changed, for text rendering."""
+    if row.verdict in ("improved", "regressed"):
+        old, new = row.before, row.after
+        return (f"{old.summary}  ->  "
+                f"[{new.severity}{f' {new.score_delta:+d}' if new.score_delta else ''}] "
+                f"{new.summary}")
+    finding = row.after or row.before
+    tag = ""
+    if finding.severity not in ("OK", "INFO"):
+        tag = f"  [{finding.severity}"
+        if finding.score_delta:
+            tag += f" {finding.score_delta:+d}"
+        tag += "]"
+    return f"{finding.summary}{tag}"
+
+
+def render_compare(before: Report, after: Report, color: bool = True) -> str:
+    """Side-by-side before/after comparison of two audit reports."""
+    lines: list[str] = []
+    paint = lambda t, c: _paint(t, c, color)  # noqa: E731
+
+    lines.append(paint(f"HeaderHawk v{__version__} - compare", "bold"))
+    lines.append(f"  Before: {before.final_url or before.url}  "
+                 f"(grade {before.grade}, score {before.score}/100)")
+    lines.append(f"  After:  {after.final_url or after.url}  "
+                 f"(grade {after.grade}, score {after.score}/100)")
+    delta = after.score - before.score
+    lines.append(paint(f"  Score change: {delta:+d} "
+                       f"({before.grade} -> {after.grade})",
+                       "green" if delta > 0 else "red" if delta < 0 else "dim"))
+    lines.append("")
+
+    rows = diff_reports(before, after)
+    if not rows:
+        lines.append(paint("No differences: both targets produced identical findings.", "dim"))
+        return "\n".join(lines).rstrip() + "\n"
+
+    icons = {"regressed": ("[!]", "red"), "new": ("[-]", "yellow"),
+             "resolved": ("[+]", "green"), "improved": ("[+]", "green")}
+    titles = {"regressed": "Regressed", "new": "New findings",
+              "resolved": "Resolved", "improved": "Improved"}
+    for verdict in ("regressed", "new", "resolved", "improved"):
+        group = [r for r in rows if r.verdict == verdict]
+        if not group:
+            continue
+        icon, icon_color = icons[verdict]
+        lines.append(paint(f"{titles[verdict]} ({len(group)})", icon_color))
+        for row in group:
+            lines.append(paint(f"  {icon} {row.check}  ({row.header})", icon_color))
+            lines.append(f"      {_verdict_line(row)}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_compare_json(before: Report, after: Report) -> str:
+    """Machine-readable compare report: both reports plus the diff."""
+    def finding_dict(finding: Finding | None) -> dict | None:
+        if finding is None:
+            return None
+        return {
+            "check": finding.check,
+            "header": finding.header,
+            "status": finding.status,
+            "severity": finding.severity,
+            "score_delta": finding.score_delta,
+            "summary": finding.summary,
+            "detail": finding.detail,
+            "fix": finding.fix,
+        }
+
+    payload = {
+        "tool": f"HeaderHawk v{__version__}",
+        "before": before.to_dict(),
+        "after": after.to_dict(),
+        "score_delta": after.score - before.score,
+        "grade_before": before.grade,
+        "grade_after": after.grade,
+        "diff": [
+            {
+                "verdict": row.verdict,
+                "check": row.check,
+                "header": row.header,
+                "before": finding_dict(row.before),
+                "after": finding_dict(row.after),
+            }
+            for row in diff_reports(before, after)
+        ],
     }
     return json.dumps(payload, indent=2) + "\n"
