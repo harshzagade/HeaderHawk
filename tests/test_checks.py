@@ -197,3 +197,50 @@ def test_duplicate_conflicts_reported_per_header_sorted():
 def test_duplicate_finding_always_has_fix():
     dups = _dup_findings({"x-frame-options": ["DENY", "SAMEORIGIN"]})
     assert all(f.fix for f in dups if f.status == "weak")
+
+
+def _csp_findings(headers):
+    return [f for f in analyze(headers, scheme="https").findings
+            if f.check == "Content-Security-Policy" and "report" in f.summary.lower()]
+
+
+def test_csp_without_reporting_directive_is_info():
+    headers = h(content_security_policy="default-src 'self'; script-src 'self'; "
+                                        "object-src 'none'; base-uri 'self'")
+    rep = _csp_findings(headers)
+    assert len(rep) == 1
+    assert rep[0].severity == "INFO" and rep[0].score_delta == 0
+    assert "report-uri" in rep[0].summary and "report-to" in rep[0].summary
+
+
+def test_csp_report_uri_noted_as_deprecated():
+    headers = h(content_security_policy="default-src 'self'; "
+                                        "report-uri https://example.com/csp")
+    rep = _csp_findings(headers)
+    assert len(rep) == 1
+    assert rep[0].severity == "INFO" and rep[0].score_delta == 0
+    assert "deprecated" in rep[0].summary
+
+
+def test_csp_report_to_with_endpoints_header_is_pass():
+    headers = h(content_security_policy="default-src 'self'; report-to csp-endpoint",
+                reporting_endpoints='csp-endpoint="https://example.com/csp"')
+    rep = _csp_findings(headers)
+    assert len(rep) == 1
+    assert rep[0].severity == "OK" and rep[0].status == "pass"
+
+
+def test_csp_report_to_without_endpoints_header_is_low():
+    headers = h(content_security_policy="default-src 'self'; report-to csp-endpoint")
+    report = analyze(headers, scheme="https")
+    rep = [f for f in report.findings
+           if f.check == "Content-Security-Policy" and "go nowhere" in f.summary]
+    assert len(rep) == 1
+    assert rep[0].severity == "LOW" and rep[0].score_delta == -2
+
+
+def test_reporting_check_never_dings_fully_secure_config():
+    # SECURE has no reporting directives; the informational note must not cost score.
+    report = analyze(SECURE, scheme="https")
+    assert report.score == 100
+    assert report.grade == "A+"

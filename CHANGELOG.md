@@ -14,6 +14,10 @@
 - Conflicting-duplicate detection: a header sent twice with different values
   (e.g. two `X-Frame-Options`) is flagged as MED (-5) since browsers disagree
   on which instance wins; identical duplicates are noted as informational.
+- CSP violation-reporting check: flags a missing `report-uri` / `report-to`
+  directive (informational, no penalty), notes deprecated `report-uri`, and
+  catches a dangling `report-to` with no matching `Report-To` /
+  `Reporting-Endpoints` header (LOW, -2, since reports go nowhere).
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,

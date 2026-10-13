@@ -249,6 +249,7 @@ def check_csp(headers: Headers) -> list[Finding]:
                         "can be abused for hijacking."),
                 fix=f"Add {recommended} to the policy.",
             ))
+    findings += check_csp_reporting(headers, csp)
     if not findings:
         findings.append(Finding(
             check="Content-Security-Policy", header="Content-Security-Policy",
@@ -262,6 +263,58 @@ def check_csp(headers: Headers) -> list[Finding]:
             summary="CSP is present; only minor hardening left.",
         ))
     return findings
+
+
+def check_csp_reporting(headers: Headers, csp: dict[str, list[str]]) -> list[Finding]:
+    """CSP violation-reporting: report-uri / report-to presence check.
+
+    A policy without a reporting directive works, but the site owner never
+    hears about violations, so legitimate scripts blocked by a too-strict
+    policy go unnoticed (and real attacks go unlogged). ``report-uri`` is
+    deprecated but still honored; the modern pair is ``report-to`` plus a
+    ``Reporting-Endpoints`` response header naming the endpoint group. A
+    ``report-to`` that names a group no endpoint header defines is dead
+    config: browsers drop the reports silently.
+    """
+    if "report-uri" in csp:
+        return [Finding(
+            check="Content-Security-Policy", header="Content-Security-Policy",
+            status="info", severity="INFO", score_delta=0,
+            summary="CSP violation reporting uses report-uri (deprecated but functional).",
+            detail=("report-uri still works in all browsers, but the standard "
+                    "going forward is the report-to directive paired with a "
+                    "Reporting-Endpoints response header."),
+            fix=("Add report-to csp-endpoint and "
+                 "Reporting-Endpoints: csp-endpoint=\"https://example.com/csp-reports\""),
+        )]
+    if "report-to" in csp:
+        if get(headers, "reporting-endpoints") is not None or \
+                get(headers, "report-to") is not None:
+            return [Finding(
+                check="Content-Security-Policy", header="Content-Security-Policy",
+                status="pass", severity="OK", score_delta=0,
+                summary="CSP violation reporting is configured (report-to + endpoints header).",
+            )]
+        return [Finding(
+            check="Content-Security-Policy", header="Content-Security-Policy",
+            status="weak", severity="LOW", score_delta=-2,
+            summary=("CSP uses report-to, but no Report-To or Reporting-Endpoints "
+                     "header defines the endpoint group: violation reports go nowhere."),
+            detail=("The report-to directive names an endpoint group; without a "
+                    "matching header, browsers have nowhere to send the "
+                    "reports, so the directive is silently dead."),
+            fix=("Reporting-Endpoints: csp-endpoint=\"https://example.com/csp-reports\" "
+                 "(group name must match the report-to value)"),
+        )]
+    return [Finding(
+        check="Content-Security-Policy", header="Content-Security-Policy",
+        status="info", severity="INFO", score_delta=0,
+        summary="CSP has no violation-reporting directive (report-uri / report-to).",
+        detail=("The policy is enforced, but nobody is told about violations: "
+                "legitimate scripts blocked by an over-strict policy stay "
+                "invisible, and attack probes leave no trace server-side."),
+        fix="Add report-uri https://example.com/csp-reports (simple) or the report-to + Reporting-Endpoints pair",
+    )]
 
 
 def check_x_content_type_options(headers: Headers) -> list[Finding]:

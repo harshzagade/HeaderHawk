@@ -128,7 +128,7 @@ documentation-reserved domain):
 
 | Check | What it looks for |
 |---|---|
-| Content-Security-Policy | Missing policy; `unsafe-inline` / `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri` |
+| Content-Security-Policy | Missing policy; `unsafe-inline` / `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged |
 | Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
