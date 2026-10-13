@@ -74,6 +74,7 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str) -> list[Bulk
             "status_code": result.status,
             "redirects": result.redirects,
             "elapsed_ms": result.elapsed_ms,
+            "redirect_chain": result.chain,
         }
         report = analyze(result.headers, scheme=scheme, meta=meta)
         rows.append(BulkResult(

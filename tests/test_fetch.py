@@ -66,6 +66,21 @@ def test_fetch_follows_redirects_and_counts(server):
     assert result.final_url.endswith("/secure")
 
 
+def test_fetch_records_redirect_chain(server):
+    result = fetch(f"{server}/redirect")
+    assert [(hop.status, hop.url) for hop in result.chain] == [
+        (302, f"{server}/redirect"),
+        (200, f"{server}/secure"),
+    ]
+
+
+def test_fetch_chain_is_single_hop_without_redirects(server):
+    result = fetch(f"{server}/secure")
+    assert [(hop.status, hop.url) for hop in result.chain] == [
+        (200, f"{server}/secure"),
+    ]
+
+
 def test_fetch_still_returns_headers_on_http_error(server):
     result = fetch(f"{server}/error")
     assert result.status == 500

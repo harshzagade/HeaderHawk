@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-from .checks import Headers
+from .checks import Headers, RedirectHop
 
 
 DEFAULT_USER_AGENT = "HeaderHawk/1.0 (+https://github.com/harshzagade/HeaderHawk)"
@@ -27,17 +27,29 @@ class FetchResult:
     headers: Headers = field(default_factory=dict)
     redirects: int = 0
     elapsed_ms: int = 0
+    chain: list[RedirectHop] = field(default_factory=list)
+    """Every response served while fetching, in order: (status, url).
+
+    The last entry is the final response; the rest are redirects that were
+    followed. A direct (no-redirect) fetch has a single-entry chain."""
 
 
 class _RedirectCounter(urllib.request.HTTPRedirectHandler):
-    """Redirect handler that counts how many redirects were followed."""
+    """Redirect handler that records the redirect chain.
+
+    Each hop stores the URL that served the redirect response and the 3xx
+    status that pointed onward, so the chain can be audited for HTTPS
+    downgrades and excessive length.
+    """
 
     def __init__(self, max_redirects: int = 5):
         self.count = 0
         self.max_redirections = max_redirects
+        self.chain: list[RedirectHop] = []
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         self.count += 1
+        self.chain.append(RedirectHop(url=req.get_full_url(), status=code))
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -68,6 +80,8 @@ def fetch(url: str, timeout: float = 10.0, user_agent: str = DEFAULT_USER_AGENT,
             headers: Headers = {}
             for key in msg.keys():
                 headers.setdefault(key.lower(), []).extend(msg.get_all(key))
+            chain = redirector.chain + [RedirectHop(url=response.geturl(),
+                                                    status=response.status)]
             return FetchResult(
                 url=url,
                 final_url=response.geturl(),
@@ -75,6 +89,7 @@ def fetch(url: str, timeout: float = 10.0, user_agent: str = DEFAULT_USER_AGENT,
                 headers=headers,
                 redirects=redirector.count,
                 elapsed_ms=int((time.monotonic() - start) * 1000),
+                chain=chain,
             )
     except urllib.error.HTTPError as exc:
         # HTTP error responses (4xx/5xx) still carry headers worth analyzing.
@@ -83,6 +98,8 @@ def fetch(url: str, timeout: float = 10.0, user_agent: str = DEFAULT_USER_AGENT,
         if msg is not None:
             for key in msg.keys():
                 headers.setdefault(key.lower(), []).extend(msg.get_all(key))
+        chain = redirector.chain + [RedirectHop(url=exc.geturl() or url,
+                                                status=exc.code)]
         return FetchResult(
             url=url,
             final_url=exc.geturl() or url,
@@ -90,6 +107,7 @@ def fetch(url: str, timeout: float = 10.0, user_agent: str = DEFAULT_USER_AGENT,
             headers=headers,
             redirects=redirector.count,
             elapsed_ms=int((time.monotonic() - start) * 1000),
+            chain=chain,
         )
     except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
         reason = getattr(exc, "reason", exc)

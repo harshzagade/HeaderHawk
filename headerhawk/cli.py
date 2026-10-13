@@ -149,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
                 "status_code": result.status,
                 "redirects": result.redirects,
                 "elapsed_ms": result.elapsed_ms,
+                "redirect_chain": result.chain,
             }
             raw_headers = result.headers
     except FetchError as exc:

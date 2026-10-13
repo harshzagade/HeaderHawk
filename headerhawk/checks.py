@@ -15,6 +15,21 @@ from dataclasses import dataclass, field
 # Data model
 # ---------------------------------------------------------------------------
 
+import urllib.parse
+
+
+@dataclass
+class RedirectHop:
+    """One response served while fetching a URL: the URL and its status.
+
+    A redirect chain is a list of these in order; the last hop is the final
+    response, the rest are the redirects that were followed.
+    """
+
+    url: str
+    status: int
+
+
 @dataclass
 class Finding:
     """One check outcome for one header."""
@@ -43,6 +58,7 @@ class Report:
     grade: str = ""
     findings: list[Finding] = field(default_factory=list)
     headers_seen: int = 0
+    redirect_chain: list[RedirectHop] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -55,6 +71,10 @@ class Report:
             "score": self.score,
             "grade": self.grade,
             "headers_seen": self.headers_seen,
+            "redirect_chain": [
+                {"url": hop.url, "status": hop.status}
+                for hop in self.redirect_chain
+            ],
             "findings": [
                 {
                     "check": f.check,
@@ -561,6 +581,71 @@ def check_conflicting_duplicates(headers: Headers) -> list[Finding]:
     return findings
 
 
+def check_redirect_chain(chain: list[RedirectHop]) -> list[Finding]:
+    """Audit the redirect chain for HTTPS upgrades, downgrades, and length.
+
+    A plain http:// URL that 301s to https:// is the standard, safe pattern
+    (an OK finding confirms it). Any hop that steps DOWN from https:// to
+    http:// re-exposes traffic, cookies, and auth tokens to passive network
+    attackers, so it is HIGH. Chains longer than 3 redirects add latency and
+    give open-redirect bugs more hops to hide behind (LOW). A final response
+    still served over plain HTTP means everything is cleartext (MED).
+    """
+    if len(chain) < 2:
+        return []  # served directly; nothing to audit
+    findings: list[Finding] = []
+    schemes = [urllib.parse.urlsplit(hop.url).scheme.lower() for hop in chain]
+
+    downgraded_at = -1
+    for i in range(1, len(schemes)):
+        if schemes[i - 1] == "https" and schemes[i] == "http":
+            downgraded_at = i
+            break
+    if downgraded_at != -1:
+        findings.append(Finding(
+            check="Redirect chain", header="(redirect chain)", status="weak",
+            severity="HIGH", score_delta=-10,
+            summary=(f"Chain downgrades HTTPS to HTTP at hop {downgraded_at + 1} "
+                     f"({chain[downgraded_at].url})."),
+            detail=("Everything after the downgrade — page content, cookies, "
+                    "auth tokens — travels in cleartext, so a passive network "
+                    "attacker can read and modify it. This usually comes from "
+                    "a misconfigured redirect rule or a CDN origin set to "
+                    "http://."),
+            fix="Make every hop in the chain https://; never redirect back to http://.",
+        ))
+    elif schemes[0] == "http" and "https" in schemes:
+        findings.append(Finding(
+            check="Redirect chain", header="(redirect chain)", status="pass",
+            severity="OK", score_delta=0,
+            summary="Chain upgrades plain HTTP to HTTPS before serving content.",
+        ))
+    if schemes[-1] == "http" and "https" not in schemes:
+        findings.append(Finding(
+            check="Redirect chain", header="(redirect chain)", status="weak",
+            severity="MED", score_delta=-8,
+            summary="Entire chain is served over plain HTTP; nothing is encrypted.",
+            detail=("No TLS anywhere means passive eavesdropping and active "
+                    "content injection by anyone on the path (open Wi-Fi, ISP, "
+                    "compromised middlebox)."),
+            fix="Serve the site over HTTPS and redirect http:// to https://.",
+        ))
+    redirects = len(chain) - 1
+    if redirects > 3:
+        findings.append(Finding(
+            check="Redirect chain", header="(redirect chain)", status="weak",
+            severity="LOW", score_delta=-2,
+            summary=(f"Long redirect chain: {redirects} redirects "
+                     f"({len(chain)} hops)."),
+            detail=("Each extra hop adds round-trip latency for every visitor "
+                    "and gives open-redirect bugs more hops to hide behind. "
+                    "Chains this long are usually stacked rules (apex -> www -> "
+                    "locale -> trailing slash) that can be collapsed."),
+            fix="Collapse the chain so the entry URL lands on the final URL in at most 2-3 redirects.",
+        ))
+    return findings
+
+
 def check_disclosure(headers: Headers) -> list[Finding]:
     """Server/software version disclosure helps attackers fingerprint the stack."""
     findings: list[Finding] = []
@@ -627,6 +712,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_cross_origin_policies(headers)
     findings += check_disclosure(headers)
     findings += check_conflicting_duplicates(headers)
+    findings += check_redirect_chain(meta.get("redirect_chain", []))
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))
 
@@ -641,4 +727,5 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
         grade=grade_for(score),
         findings=findings,
         headers_seen=len(headers),
+        redirect_chain=list(meta.get("redirect_chain", [])),
     )

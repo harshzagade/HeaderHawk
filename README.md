@@ -137,6 +137,7 @@ documentation-reserved domain):
 | COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
+| Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
 
 Every finding explains **why it matters** and gives the **exact header to add**.
 

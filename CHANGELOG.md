@@ -21,6 +21,10 @@
 - `--only HIGH,MED` severity filter for the text report: hides lower-priority
   findings from the display (grade/score still reflect all findings); `--json`
   output keeps every finding; unknown severities exit with an error.
+- Redirect-chain audit: every hop of the redirect chain is recorded (shown in
+  `--json` as `redirect_chain`). HTTP→HTTPS upgrades are confirmed as OK;
+  HTTPS→HTTP downgrades are HIGH (-10); chains longer than 3 redirects are
+  flagged (LOW, -2); a final response still on plain HTTP is MED (-8).
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,
