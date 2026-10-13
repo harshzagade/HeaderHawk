@@ -101,3 +101,47 @@ def test_cli_raw_neutralizes_terminal_injection(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "\x1b" not in out
     assert "server: nginx\\x1b[2J\\x1b[1;1Hpwned" in out
+
+
+def test_cli_only_filters_to_high_severities(tmp_path, capsys):
+    code = main(["--headers", _headers_file(tmp_path), "--no-color", "--only", "HIGH"])
+    assert code == 0
+    out = capsys.readouterr().out
+    # Missing CSP/HSTS/XFO are HIGH and must still show.
+    assert "Content-Security-Policy" in out
+    assert "Strict-Transport-Security" in out
+    # Server version disclosure is LOW and must be hidden.
+    assert "Information disclosure" not in out
+    assert "Showing only HIGH findings" in out
+
+
+def test_cli_only_keeps_grade_and_score_honest(tmp_path, capsys):
+    code = main(["--headers", _headers_file(tmp_path), "--no-color", "--only", "HIGH"])
+    out = capsys.readouterr().out
+    assert "GRADE: F" in out and "(score 35/100)" in out
+    assert "still reflect all findings" in out
+
+
+def test_cli_only_is_case_insensitive_and_multi(tmp_path, capsys):
+    code = main(["--headers", _headers_file(tmp_path), "--no-color",
+                 "--only", "high,med"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "X-Content-Type-Options" in out          # MED, shown
+    assert "Information disclosure" not in out      # LOW, hidden
+    assert "Showing only HIGH, MED findings" in out
+
+
+def test_cli_only_does_not_touch_json(tmp_path, capsys):
+    code = main(["--headers", _headers_file(tmp_path), "--json", "--no-color",
+                 "--only", "HIGH"])
+    assert code == 0
+    payload = __import__("json").loads(capsys.readouterr().out)
+    severities = {f["severity"] for f in payload["findings"]}
+    assert "LOW" in severities  # JSON keeps every finding
+
+
+def test_cli_only_rejects_unknown_severity(tmp_path, capsys):
+    code = main(["--headers", _headers_file(tmp_path), "--only", "CRITICAL"])
+    assert code == 2
+    assert "unknown severity" in capsys.readouterr().err

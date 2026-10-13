@@ -58,7 +58,7 @@ headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
-`--fail-below GRADE`, `--bulk FILE`, `--version`. Run `headerhawk --help` for
+`--fail-below GRADE`, `--only SEV`, `--bulk FILE`, `--version`. Run `headerhawk --help` for
 the full list.
 
 ## Sample output

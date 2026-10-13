@@ -43,8 +43,14 @@ def _sorted_findings(findings: list[Finding]) -> list[Finding]:
                   key=lambda f: (_SEVERITY_ORDER.get(f.severity, 9), f.check, f.header))
 
 
-def render_text(report: Report, color: bool = True) -> str:
-    """Human-readable report with grade, findings, and fix suggestions."""
+def render_text(report: Report, color: bool = True,
+                only: set[str] | None = None) -> str:
+    """Human-readable report with grade, findings, and fix suggestions.
+
+    ``only`` is an optional set of severities (e.g. {"HIGH", "MED"}) used to
+    hide lower-priority findings from the display. Filtering is display-only:
+    the grade and score are always computed from every finding.
+    """
     lines: list[str] = []
     paint = lambda t, c: _paint(t, c, color)  # noqa: E731
 
@@ -61,9 +67,20 @@ def render_text(report: Report, color: bool = True) -> str:
 
     grade_color = _GRADE_COLOR.get(report.grade, "reset")
     lines.append(paint(f"GRADE: {report.grade}   (score {report.score}/100)", grade_color))
+
+    findings = _sorted_findings(report.findings)
+    if only is not None:
+        shown = [f for f in findings if f.severity in only]
+        hidden = len(findings) - len(shown)
+        names = ", ".join(sorted(only, key=lambda s: _SEVERITY_ORDER.get(s, 9)))
+        lines.append(paint(
+            f"Showing only {names} findings "
+            f"({hidden} lower-priority finding{'s' if hidden != 1 else ''} hidden; "
+            "grade/score still reflect all findings).", "dim"))
+        findings = shown
     lines.append("")
 
-    for finding in _sorted_findings(report.findings):
+    for finding in findings:
         icon, icon_color = _STATUS_ICON.get(finding.status, ("[?]", "dim"))
         head = f"{icon} {finding.check}"
         if finding.severity not in ("OK", "INFO"):

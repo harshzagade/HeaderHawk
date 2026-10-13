@@ -14,6 +14,22 @@ from .offline import load_headers
 from .report import grade_index, render_bulk_json, render_bulk_table, render_json, render_text
 
 
+_VALID_SEVERITIES = ("HIGH", "MED", "LOW", "INFO", "OK")
+
+
+def _parse_only(value: str | None) -> set[str] | None:
+    """Parse --only into a severity set. Raises ValueError on unknown input."""
+    if value is None:
+        return None
+    severities = {part.strip().upper() for part in value.split(",") if part.strip()}
+    unknown = [s for s in severities if s not in _VALID_SEVERITIES]
+    if unknown:
+        raise ValueError(
+            f"unknown severity {unknown[0]!r} in --only "
+            f"(use one or more of {', '.join(_VALID_SEVERITIES)}).")
+    return severities
+
+
 def _terminal_safe(text: str) -> str:
     """Render *text* safe for terminal output.
 
@@ -39,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Emit a machine-readable JSON report.")
     parser.add_argument("--no-color", action="store_true",
                         help="Disable ANSI colors in the text report.")
+    parser.add_argument("--only", metavar="SEV",
+                        help="Show only findings with these severities in the text "
+                             "report (comma-separated, e.g. --only HIGH,MED). "
+                             "Grade/score still reflect all findings; JSON "
+                             "output is unaffected.")
     parser.add_argument("--timeout", type=float, default=10.0, metavar="SEC",
                         help="Fetch timeout in seconds (default: 10).")
     parser.add_argument("--user-agent", default=DEFAULT_USER_AGENT, metavar="UA",
@@ -139,6 +160,11 @@ def main(argv: list[str] | None = None) -> int:
 
     report = analyze(headers, scheme=scheme, meta=meta)
     color = not args.no_color and sys.stdout.isatty()
+    try:
+        only = _parse_only(args.only)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     chunks: list[str] = []
     if args.raw:
@@ -149,7 +175,8 @@ def main(argv: list[str] | None = None) -> int:
                 # verbatim to the terminal.
                 chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
-    chunks.append(render_json(report) if args.json else render_text(report, color=color))
+    chunks.append(render_json(report) if args.json
+                  else render_text(report, color=color, only=only))
     output = "\n".join(chunks)
 
     if args.output:

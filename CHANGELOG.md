@@ -18,6 +18,9 @@
   directive (informational, no penalty), notes deprecated `report-uri`, and
   catches a dangling `report-to` with no matching `Report-To` /
   `Reporting-Endpoints` header (LOW, -2, since reports go nowhere).
+- `--only HIGH,MED` severity filter for the text report: hides lower-priority
+  findings from the display (grade/score still reflect all findings); `--json`
+  output keeps every finding; unknown severities exit with an error.
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,
