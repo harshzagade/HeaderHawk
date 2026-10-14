@@ -36,6 +36,12 @@
   submission). API failures surface as an informational note, never an
   error; skipped for IP targets, offline, and bulk runs (responses cached
   per process).
+- `--watch SEC` mode: re-audit a URL on an interval and print an alert only
+  when the grade or findings change (for monitoring your own site after
+  deploys), reusing the `--compare` diff renderer for the alert. The first
+  audit prints the full baseline report; later clean audits print one quiet
+  heartbeat line; fetch failures mid-run are reported and retried. Ctrl-C
+  stops with a summary; `--fail-below` gates every audit.
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,

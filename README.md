@@ -59,11 +59,15 @@ headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 # Compare two targets side by side (before/after hardening checks):
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
+
+# Watch mode: re-audit every 60 seconds, alerting only when the grade or
+# findings change (for monitoring your own site after deploys)
+headerhawk example.com --watch 60
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--bulk FILE`, `--compare URL_A URL_B`,
-`--version`. Run `headerhawk --help` for
+`--watch SEC`, `--version`. Run `headerhawk --help` for
 the full list.
 
 ## Sample output
@@ -165,7 +169,7 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 ## Development
 
 ```bash
-python3 -m pytest -q     # 66 tests, localhost fixtures only, no real targets
+python3 -m pytest -q     # 118 tests, localhost fixtures only, no real targets
 ```
 
 ## License

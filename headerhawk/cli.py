@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import ipaddress
 import sys
+import time
 import urllib.parse
 
 from . import __version__
 from .bulk import audit_targets, read_targets
-from .checks import analyze
-from .fetch import DEFAULT_USER_AGENT, FetchError, fetch
+from .checks import Headers, Report, analyze, get
+from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, preload_status)
 from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
@@ -79,10 +82,146 @@ def build_parser() -> argparse.ArgumentParser:
                              "URL_B, and show what changed (regressed, new, "
                              "resolved, improved findings). Made for before/after "
                              "hardening checks. --fail-below gates on URL_B.")
+    parser.add_argument("--watch", type=float, default=None, metavar="SEC",
+                        help="Watch mode: re-audit the URL every SEC seconds "
+                             "and print an alert only when the grade or "
+                             "findings change (for monitoring your own site "
+                             "after deploys). Ctrl-C stops. Single live-URL "
+                             "mode only; cannot be combined with --bulk, "
+                             "--compare, --headers, --raw, --only, --output, "
+                             "or --json.")
     parser.add_argument("-o", "--output", metavar="FILE",
                         help="Write the report to FILE instead of stdout.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def _looks_like_ip(host: str) -> bool:
+    """True for IP literals (v4/v6), where preload-list checks make no sense."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _hsts_preload_status(url: str, headers: Headers, scheme: str,
+                         timeout: float) -> str | None:
+    """Query hstspreload.org when the target advertises HSTS preload.
+
+    Returns the list status (``"preloaded"``/``"unknown"``/...), ``"unchecked"``
+    when the check does not apply (no preload directive, non-HTTPS, IP
+    target), or None when the API could not be reached — the failed query
+    surfaces as an informational finding via check_hsts_preload, never a
+    hard error.
+    """
+    if scheme != "https":
+        return "unchecked"
+    hsts = get(headers, "strict-transport-security")
+    if hsts is None or "preload" not in hsts.lower():
+        return "unchecked"
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if not host or _looks_like_ip(host):
+        return "unchecked"
+    try:
+        return preload_status(host, timeout=timeout)
+    except FetchError:
+        return None
+
+
+def _audit_one(url: str, *, timeout: float,
+               user_agent: str) -> tuple[Report, Headers]:
+    """Fetch a URL once and return (report, raw headers).
+
+    The HSTS preload-list status is queried when the response advertises a
+    preload directive (cached per process inside fetch.preload_status).
+    """
+    result = fetch(url, timeout=timeout, user_agent=user_agent)
+    scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
+    meta = {
+        "url": url,
+        "final_url": result.final_url,
+        "status_code": result.status,
+        "redirects": result.redirects,
+        "elapsed_ms": result.elapsed_ms,
+        "redirect_chain": result.chain,
+        "hsts_preload": _hsts_preload_status(result.final_url, result.headers,
+                                             scheme, timeout),
+    }
+    return analyze(result.headers, scheme=scheme, meta=meta), result.headers
+
+
+def _now() -> str:
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
+
+def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
+    """Re-audit args.url on an interval; alert only when things change.
+
+    ``sleep`` is injectable so tests can drive the loop without waiting.
+    """
+    interval = args.watch
+    color = not args.no_color and sys.stdout.isatty()
+    threshold = None
+    if args.fail_below:
+        try:
+            threshold = grade_index(args.fail_below)
+        except ValueError:
+            print(f"error: unknown grade {args.fail_below!r} "
+                  f"(use one of A+ A B C D E F).", file=sys.stderr)
+            return 2
+
+    print(f"HeaderHawk v{__version__} - watching {args.url}: auditing every "
+          f"{interval:g}s; alerting only when the grade or findings change "
+          "(Ctrl-C to stop).")
+    prev: Report | None = None
+    audits = 0
+    started = time.monotonic()
+    try:
+        while True:
+            try:
+                report, _ = _audit_one(args.url, timeout=args.timeout,
+                                       user_agent=args.user_agent)
+            except FetchError as exc:
+                if prev is None:
+                    print(f"error: {exc}", file=sys.stderr)
+                    return 2
+                print(f"[{_now()}] fetch failed: {exc} (keeping the last "
+                      f"report; retrying in {interval:g}s)")
+            else:
+                audits += 1
+                if prev is None:
+                    print(f"[{_now()}] Baseline: grade {report.grade} "
+                          f"(score {report.score}/100).")
+                    sys.stdout.write(render_text(report, color=color))
+                else:
+                    changes = diff_reports(prev, report)
+                    if changes:
+                        delta = report.score - prev.score
+                        direction = ("worse" if delta < 0
+                                     else "better" if delta > 0 else "changed")
+                        print(f"[{_now()}] CHANGE DETECTED ({direction}): "
+                              f"{prev.grade} -> {report.grade} "
+                              f"(score {prev.score} -> {report.score}, "
+                              f"{delta:+d}); {len(changes)} finding(s) differ.")
+                        sys.stdout.write(render_compare(prev, report,
+                                                        color=color))
+                    else:
+                        print(f"[{_now()}] no change: grade {report.grade} "
+                              f"(score {report.score}/100, audit #{audits}).")
+                prev = report
+                if threshold is not None and grade_index(report.grade) > threshold:
+                    sys.stderr.write(
+                        f"Grade {report.grade} is below the required "
+                        f"{args.fail_below.upper()}.\n")
+                    return 1
+            sleep(interval)
+    except KeyboardInterrupt:
+        elapsed = time.monotonic() - started
+        last = f", last grade {prev.grade}" if prev is not None else ""
+        print(f"\nStopped watching {args.url} after {audits} audit(s) in "
+              f"{elapsed:.0f}s{last}.")
+        return 0
 
 
 def run_bulk(args: argparse.Namespace) -> int:
@@ -127,20 +266,12 @@ def run_compare(args: argparse.Namespace) -> int:
     reports = []
     for url in args.compare:
         try:
-            result = fetch(url, timeout=args.timeout, user_agent=args.user_agent)
+            report, _ = _audit_one(url, timeout=args.timeout,
+                                   user_agent=args.user_agent)
         except FetchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
-        meta = {
-            "url": url,
-            "final_url": result.final_url,
-            "status_code": result.status,
-            "redirects": result.redirects,
-            "elapsed_ms": result.elapsed_ms,
-            "redirect_chain": result.chain,
-        }
-        reports.append(analyze(result.headers, scheme=scheme, meta=meta))
+        reports.append(report)
 
     color = not args.no_color and sys.stdout.isatty()
     output = (render_compare_json(*reports) if args.json
@@ -189,6 +320,25 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return run_compare(args)
 
+    if args.watch is not None:
+        if args.bulk or args.compare or args.headers:
+            print("error: --watch cannot be combined with --bulk, --compare, "
+                  "or --headers.", file=sys.stderr)
+            return 2
+        if not args.url:
+            print("error: --watch needs a live URL to re-audit.",
+                  file=sys.stderr)
+            return 2
+        if args.raw or args.only or args.output or args.json:
+            print("error: --raw, --only, --output, and --json do not apply "
+                  "in --watch mode.", file=sys.stderr)
+            return 2
+        if args.watch <= 0:
+            print(f"error: --watch interval must be positive "
+                  f"(got {args.watch:g}s).", file=sys.stderr)
+            return 2
+        return run_watch(args)
+
     offline = args.headers is not None or (args.url is None and not sys.stdin.isatty())
     if args.url and args.headers:
         print("error: pass either a URL or --headers, not both.", file=sys.stderr)
@@ -197,25 +347,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if offline:
             headers = load_headers(args.headers)
-            scheme = "https"
-            meta = {"url": args.headers or "<stdin>"}
             raw_headers = headers
+            report = analyze(headers, scheme="https",
+                             meta={"url": args.headers or "<stdin>"})
         else:
             if not args.url:
                 print("error: no URL given and nothing piped on stdin.", file=sys.stderr)
                 return 2
-            result = fetch(args.url, timeout=args.timeout, user_agent=args.user_agent)
-            headers = result.headers
-            scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
-            meta = {
-                "url": args.url,
-                "final_url": result.final_url,
-                "status_code": result.status,
-                "redirects": result.redirects,
-                "elapsed_ms": result.elapsed_ms,
-                "redirect_chain": result.chain,
-            }
-            raw_headers = result.headers
+            report, raw_headers = _audit_one(args.url, timeout=args.timeout,
+                                             user_agent=args.user_agent)
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -223,7 +363,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    report = analyze(headers, scheme=scheme, meta=meta)
     color = not args.no_color and sys.stdout.isatty()
     try:
         only = _parse_only(args.only)
