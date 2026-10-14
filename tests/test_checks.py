@@ -244,3 +244,54 @@ def test_reporting_check_never_dings_fully_secure_config():
     report = analyze(SECURE, scheme="https")
     assert report.score == 100
     assert report.grade == "A+"
+
+
+def _preload_findings(report):
+    return [f for f in report.findings if f.check == "HSTS preload list"]
+
+
+def test_hsts_preload_preloaded_is_ok():
+    report = analyze(SECURE, scheme="https", meta={"hsts_preload": "preloaded"})
+    assert report.score == 100
+    assert report.grade == "A+"
+    findings = _preload_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity == "OK"
+    assert findings[0].score_delta == 0
+
+
+def test_hsts_preload_unknown_is_low():
+    report = analyze(SECURE, scheme="https", meta={"hsts_preload": "unknown"})
+    findings = _preload_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity == "LOW"
+    assert findings[0].score_delta == -2
+    assert "hstspreload.org" in findings[0].summary
+    assert report.score == 98
+
+
+def test_hsts_preload_failed_query_is_info():
+    report = analyze(SECURE, scheme="https", meta={"hsts_preload": None})
+    findings = _preload_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity == "INFO"
+    assert findings[0].score_delta == 0
+    assert report.score == 100
+
+
+def test_hsts_preload_silent_without_meta_key():
+    # Offline analysis never queries the API: no finding at all, score kept.
+    report = analyze(SECURE, scheme="https")
+    assert _preload_findings(report) == []
+    assert report.score == 100
+
+
+def test_hsts_preload_silent_without_preload_directive():
+    headers = h(strict_transport_security="max-age=63072000; includeSubDomains")
+    report = analyze(headers, scheme="https", meta={"hsts_preload": "preloaded"})
+    assert _preload_findings(report) == []
+
+
+def test_hsts_preload_silent_over_plain_http():
+    report = analyze(SECURE, scheme="http", meta={"hsts_preload": "preloaded"})
+    assert _preload_findings(report) == []

@@ -2,11 +2,44 @@
 
 import os
 import threading
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from headerhawk.fetch import FetchError, fetch, normalize_url
+from headerhawk.fetch import (FetchError, fetch, normalize_url,
+                              preload_status)
+
+
+@pytest.fixture
+def clear_preload_cache():
+    preload_status.cache_clear()
+    yield
+    preload_status.cache_clear()
+
+
+class _FakeAPIResponse:
+    """Minimal context manager mimicking urllib's HTTPResponse for tests."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_urlopen(body: bytes, seen: dict | None = None):
+    def fake(request, timeout=None):
+        if seen is not None:
+            seen["url"] = request.full_url
+        return _FakeAPIResponse(body)
+    return fake
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -99,3 +132,54 @@ def test_normalize_url_adds_https():
 def test_normalize_url_rejects_non_http_scheme():
     with pytest.raises(FetchError):
         normalize_url("ftp://example.com/file")
+
+
+def test_preload_status_preloaded(monkeypatch, clear_preload_cache):
+    seen = {}
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _fake_urlopen(b'{"name": "example.com", "status": "preloaded", '
+                      b'"bulk": true, "preloadedDomain": "example.com"}', seen))
+    assert preload_status("example.com") == "preloaded"
+    assert "domain=example.com" in seen["url"]
+
+
+def test_preload_status_unknown(monkeypatch, clear_preload_cache):
+    monkeypatch.setattr("urllib.request.urlopen",
+                        _fake_urlopen(b'{"name": "example.com", "status": "unknown"}'))
+    assert preload_status("example.com") == "unknown"
+
+
+def test_preload_status_result_is_cached(monkeypatch, clear_preload_cache):
+    calls = []
+
+    def fake(request, timeout=None):
+        calls.append(request.full_url)
+        return _FakeAPIResponse(b'{"status": "preloaded"}')
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    assert preload_status("cached.example") == "preloaded"
+    assert preload_status("cached.example") == "preloaded"
+    assert len(calls) == 1  # --watch re-audits must not hammer the API
+
+
+def test_preload_status_network_error_raises_fetch_error(monkeypatch,
+                                                         clear_preload_cache):
+    def fake(request, timeout=None):
+        raise urllib.error.URLError("boom")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    with pytest.raises(FetchError):
+        preload_status("example.com")
+
+
+def test_preload_status_bad_payload_raises_fetch_error(monkeypatch,
+                                                       clear_preload_cache):
+    monkeypatch.setattr("urllib.request.urlopen",
+                        _fake_urlopen(b"not json at all"))
+    with pytest.raises(FetchError):
+        preload_status("bad1.example")
+    monkeypatch.setattr("urllib.request.urlopen",
+                        _fake_urlopen(b'{"status": 42}'))
+    with pytest.raises(FetchError):
+        preload_status("bad2.example")

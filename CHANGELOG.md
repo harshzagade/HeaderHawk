@@ -29,6 +29,13 @@
   regressed, new, resolved, and improved findings, with the score change.
   Made for checking hardening work; `--fail-below` gates on URL_B; `--json`
   emits both reports plus the diff.
+- HSTS preload-list verification: when a live audit sees the `preload`
+  directive, HeaderHawk queries the hstspreload.org status API and confirms
+  the domain is actually submitted — a missing list entry is LOW (-2), since
+  a bare directive is false confidence (first visits stay unprotected until
+  submission). API failures surface as an informational note, never an
+  error; skipped for IP targets, offline, and bulk runs (responses cached
+  per process).
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,

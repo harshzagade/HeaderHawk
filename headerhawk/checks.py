@@ -187,6 +187,55 @@ def check_hsts(headers: Headers, scheme: str) -> list[Finding]:
     return findings
 
 
+def check_hsts_preload(headers: Headers, scheme: str,
+                     preload: str | None) -> list[Finding]:
+    """Verify the domain is actually on the HSTS preload list.
+
+    A ``preload`` directive in the HSTS header only expresses *intent*:
+    browsers honor it after the domain is submitted at hstspreload.org and
+    shipped in the preload list. Sending the directive without a list entry
+    is false confidence — the very first visit is still unprotected.
+
+    ``preload`` is the list status queried from hstspreload.org
+    (``"preloaded"``, ``"unknown"``, ...), None when the query was attempted
+    but failed, or ``"unchecked"`` when the check did not run (offline or
+    bulk analysis).
+    """
+    name = "Strict-Transport-Security"
+    value = get(headers, name)
+    if scheme != "https" or value is None or "preload" not in value.lower():
+        return []
+    if preload == "unchecked":
+        return []
+    if preload is None:
+        return [Finding(
+            check="HSTS preload list", header=name, status="info",
+            severity="INFO", score_delta=0,
+            summary="Preload-list status could not be verified in this run.",
+            detail=("HeaderHawk could not reach hstspreload.org, so it cannot "
+                    "confirm whether this preload directive is backed by a "
+                    "real preload-list entry."),
+        )]
+    if preload == "preloaded":
+        return [Finding(
+            check="HSTS preload list", header=name, status="pass",
+            severity="OK", score_delta=0,
+            summary=("Domain is on the HSTS preload list "
+                     "(verified via hstspreload.org)."),
+        )]
+    return [Finding(
+        check="HSTS preload list", header=name, status="weak",
+        severity="LOW", score_delta=-2,
+        summary=(f"HSTS advertises preload, but hstspreload.org reports status "
+                 f"{preload!r}: the domain is not actually submitted."),
+        detail=("The preload directive takes effect only after the domain is "
+                "submitted and accepted into the preload list; until then the "
+                "very first visit is still vulnerable to SSL stripping."),
+        fix=("Submit the domain at https://hstspreload.org (requires valid "
+             "HSTS with includeSubDomains on the apex domain)."),
+    )]
+
+
 def parse_csp(value: str) -> dict[str, list[str]]:
     """Parse a CSP header value into {directive: [sources]} (lowercased)."""
     directives: dict[str, list[str]] = {}
@@ -704,6 +753,8 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
 
     findings: list[Finding] = []
     findings += check_hsts(headers, scheme)
+    findings += check_hsts_preload(headers, scheme,
+                                   meta.get("hsts_preload", "unchecked"))
     findings += check_csp(headers)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)

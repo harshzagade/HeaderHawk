@@ -134,7 +134,7 @@ documentation-reserved domain):
 | Check | What it looks for |
 |---|---|
 | Content-Security-Policy | Missing policy; `unsafe-inline` / `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged |
-| Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint |
+| Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence) |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
 | Referrer-Policy | Missing; `unsafe-url`; lax browser default |
@@ -158,6 +158,9 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
   authorized to test.
 - Cookie flag auditing (`Secure`, `HttpOnly`, `SameSite`) is intentionally
   out of scope here; it belongs to the planned **CookieScope** project.
+- The HSTS preload-list check queries hstspreload.org, so it only runs in
+  live single-URL, `--watch`, and `--compare` mode — never offline or in
+  bulk runs.
 
 ## Development
 

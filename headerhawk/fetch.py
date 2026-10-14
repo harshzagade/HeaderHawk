@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from .checks import Headers, RedirectHop
 
@@ -51,6 +53,33 @@ class _RedirectCounter(urllib.request.HTTPRedirectHandler):
         self.count += 1
         self.chain.append(RedirectHop(url=req.get_full_url(), status=code))
         return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+@lru_cache(maxsize=256)
+def preload_status(domain: str, timeout: float = 10.0) -> str:
+    """Ask hstspreload.org whether *domain* is on the HSTS preload list.
+
+    Returns the API's status string verbatim (``"preloaded"``, ``"unknown"``,
+    ``"removed"``, ...). Raises FetchError when the API is unreachable or the
+    response is not parseable. Results are cached per process, so repeated
+    audits of the same domain (e.g. ``--watch``) do not hammer the API.
+    """
+    api_url = ("https://hstspreload.org/api/v2/status?domain="
+               + urllib.parse.quote(domain, safe=""))
+    request = urllib.request.Request(api_url,
+                                     headers={"User-Agent": DEFAULT_USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, socket.timeout, TimeoutError, OSError,
+            ValueError) as exc:
+        raise FetchError(
+            f"Could not query hstspreload.org for {domain}: {exc}") from exc
+    status = payload.get("status") if isinstance(payload, dict) else None
+    if not isinstance(status, str) or not status:
+        raise FetchError(
+            f"Unexpected hstspreload.org response for {domain}: {payload!r}")
+    return status
 
 
 def normalize_url(url: str) -> str:
