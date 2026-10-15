@@ -120,6 +120,76 @@ def render_json(report: Report) -> str:
     return json.dumps(payload, indent=2) + "\n"
 
 
+_EXPLAIN_LEAD = {
+    "HIGH": "the problems worth fixing before anything else, because these are the ones attackers look for first",
+    "MED": "the problems worth fixing right after the HIGH ones",
+    "LOW": "leftover hardening — worth fixing when convenient, not urgent",
+    "INFO": "background notes, not problems: useful context, nothing to fix",
+    "OK": "the things the site already does right: no action needed",
+}
+
+
+def _explain_paragraph(report: Report, severity: str, count: int) -> str:
+    """One plain-English paragraph closing an --explain report."""
+    target = report.final_url or report.url
+    lead = _EXPLAIN_LEAD[severity]
+    if severity in ("INFO", "OK"):
+        return (f"In plain English: the items above are {lead}. "
+                f"{target} needs nothing from you on this front.")
+    noun = "issue" if count == 1 else "issues"
+    return (f"In plain English: {target} has {count} {severity.lower()}-severity "
+            f"{noun} — {lead}. The fix for each item is a setting on the web "
+            f"server (usually a single response header to add or edit), not a "
+            f"change to the website's code, so whoever runs the server can "
+            f"normally clear this whole list in one sitting. The score is "
+            f"currently {report.score}/100, and fixing every item above "
+            f"pushes it up.")
+
+
+def render_explain(report: Report, severity: str, color: bool = True) -> str:
+    """Plain-English explainer for one severity, for non-security teammates.
+
+    Shows only findings with ``severity`` (grade/score still reflect every
+    finding) with "what it means" / "what to do" notes, and closes with one
+    plain-English paragraph summarizing the list. Grade and score are shown
+    for context, not re-computed from the filtered set.
+    """
+    lines: list[str] = []
+    paint = lambda t, c: _paint(t, c, color)  # noqa: E731
+    target = report.final_url or report.url
+
+    lines.append(paint(
+        f"HeaderHawk v{__version__} - {severity} findings, in plain English",
+        "bold"))
+    lines.append(f"Target: {target}   (grade {report.grade}, "
+                 f"score {report.score}/100)")
+    lines.append("")
+
+    findings = [f for f in _sorted_findings(report.findings)
+                if f.severity == severity]
+    if not findings:
+        lines.append(paint(f"Good news: no {severity} findings on {target}.",
+                           "green"))
+        if severity in ("HIGH", "MED", "LOW"):
+            lines.append("Nothing in this severity band needs attention.")
+        lines.append("")
+        return "\n".join(lines).rstrip() + "\n"
+
+    for finding in findings:
+        icon, icon_color = _STATUS_ICON.get(finding.status, ("[?]", "dim"))
+        lines.append(paint(f"{icon} {finding.check}: {finding.summary}",
+                           icon_color))
+        if finding.detail:
+            lines.append(f"    What it means: {finding.detail}")
+        if finding.fix:
+            lines.append(paint(f"    What to do: {finding.fix}", "cyan"))
+        lines.append("")
+
+    lines.append(paint(_explain_paragraph(report, severity, len(findings)),
+                       "dim"))
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def grade_index(grade: str) -> int:
     """Position in the grade ladder (0 = best). Raises ValueError if unknown."""
     return GRADES.index(grade.upper())

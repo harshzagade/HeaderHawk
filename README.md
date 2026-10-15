@@ -45,6 +45,10 @@ headerhawk example.com --json | jq .grade
 # CI gate: exit 1 unless the grade is at least B
 headerhawk example.com --fail-below B
 
+# Plain-English explainer for non-security teammates: only HIGH findings,
+# each with "what it means" and "what to do" notes plus a summary paragraph
+headerhawk example.com --explain HIGH
+
 # See the raw headers too
 headerhawk example.com --raw
 
@@ -66,8 +70,8 @@ headerhawk example.com --watch 60
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
-`--fail-below GRADE`, `--only SEV`, `--bulk FILE`, `--compare URL_A URL_B`,
-`--watch SEC`, `--version`. Run `headerhawk --help` for
+`--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--bulk FILE`,
+`--compare URL_A URL_B`, `--watch SEC`, `--version`. Run `headerhawk --help` for
 the full list.
 
 ## Sample output

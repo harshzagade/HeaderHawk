@@ -16,7 +16,7 @@ from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, preload_status)
 from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
-                      render_json, render_text)
+                      render_explain, render_json, render_text)
 
 
 _VALID_SEVERITIES = ("HIGH", "MED", "LOW", "INFO", "OK")
@@ -33,6 +33,21 @@ def _parse_only(value: str | None) -> set[str] | None:
             f"unknown severity {unknown[0]!r} in --only "
             f"(use one or more of {', '.join(_VALID_SEVERITIES)}).")
     return severities
+
+
+def _parse_explain(value: str | None) -> str | None:
+    """Parse --explain into a single severity. Raises ValueError on bad input."""
+    if value is None:
+        return None
+    if "," in value:
+        raise ValueError("--explain takes a single severity "
+                         "(e.g. --explain HIGH); use --only for several.")
+    severity = value.strip().upper()
+    if severity not in _VALID_SEVERITIES:
+        raise ValueError(
+            f"unknown severity {severity!r} in --explain "
+            f"(use one of {', '.join(_VALID_SEVERITIES)}).")
+    return severity
 
 
 def _terminal_safe(text: str) -> str:
@@ -65,6 +80,14 @@ def build_parser() -> argparse.ArgumentParser:
                              "report (comma-separated, e.g. --only HIGH,MED). "
                              "Grade/score still reflect all findings; JSON "
                              "output is unaffected.")
+    parser.add_argument("--explain", metavar="SEV",
+                        help="Plain-English explainer for one severity "
+                             "(e.g. --explain HIGH): show only findings with "
+                             "this severity, each with 'what it means' and "
+                             "'what to do' notes, plus a one-paragraph summary "
+                             "for non-security teammates. Grade/score still "
+                             "reflect all findings. Cannot be combined with "
+                             "--only or --json.")
     parser.add_argument("--timeout", type=float, default=10.0, metavar="SEC",
                         help="Fetch timeout in seconds (default: 10).")
     parser.add_argument("--user-agent", default=DEFAULT_USER_AGENT, metavar="UA",
@@ -88,8 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "findings change (for monitoring your own site "
                              "after deploys). Ctrl-C stops. Single live-URL "
                              "mode only; cannot be combined with --bulk, "
-                             "--compare, --headers, --raw, --only, --output, "
-                             "or --json.")
+                             "--compare, --headers, --raw, --only, --explain, "
+                             "--output, or --json.")
     parser.add_argument("-o", "--output", metavar="FILE",
                         help="Write the report to FILE instead of stdout.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -303,9 +326,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.bulk:
-        if args.url or args.headers or args.compare:
+        if args.url or args.headers or args.compare or args.explain:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "or --compare.", file=sys.stderr)
+                  "--compare, or --explain.", file=sys.stderr)
             return 2
         return run_bulk(args)
 
@@ -314,9 +337,9 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --compare cannot be combined with a URL or --headers.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only:
-            print("error: --raw and --only apply to single-target mode, "
-                  "not --compare.", file=sys.stderr)
+        if args.raw or args.only or args.explain:
+            print("error: --raw, --only, and --explain apply to single-target "
+                  "mode, not --compare.", file=sys.stderr)
             return 2
         return run_compare(args)
 
@@ -329,9 +352,9 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --watch needs a live URL to re-audit.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.output or args.json:
-            print("error: --raw, --only, --output, and --json do not apply "
-                  "in --watch mode.", file=sys.stderr)
+        if args.raw or args.only or args.explain or args.output or args.json:
+            print("error: --raw, --only, --explain, --output, and --json do "
+                  "not apply in --watch mode.", file=sys.stderr)
             return 2
         if args.watch <= 0:
             print(f"error: --watch interval must be positive "
@@ -366,8 +389,17 @@ def main(argv: list[str] | None = None) -> int:
     color = not args.no_color and sys.stdout.isatty()
     try:
         only = _parse_only(args.only)
+        explain = _parse_explain(args.explain)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if explain and only:
+        print("error: --explain and --only both filter findings; use one of "
+              "them.", file=sys.stderr)
+        return 2
+    if explain and args.json:
+        print("error: --explain is a text report; it cannot be combined with "
+              "--json.", file=sys.stderr)
         return 2
 
     chunks: list[str] = []
@@ -379,8 +411,11 @@ def main(argv: list[str] | None = None) -> int:
                 # verbatim to the terminal.
                 chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
-    chunks.append(render_json(report) if args.json
-                  else render_text(report, color=color, only=only))
+    if explain:
+        chunks.append(render_explain(report, explain, color=color))
+    else:
+        chunks.append(render_json(report) if args.json
+                      else render_text(report, color=color, only=only))
     output = "\n".join(chunks)
 
     if args.output:

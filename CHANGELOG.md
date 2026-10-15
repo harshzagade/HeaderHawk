@@ -2,6 +2,11 @@
 
 ## Unreleased
 ### Added
+- `--explain SEV`: plain-English explainer for one severity, made for
+  non-security teammates. Shows only findings with that severity, each with
+  "what it means" and "what to do" notes, and closes with a one-paragraph
+  summary; grade/score still reflect all findings. Rejects combos with
+  `--only`, `--json`, `--bulk`, `--compare`, and `--watch`.
 - Cookie flag audit: every `Set-Cookie` is checked for the `Secure`,
   `HttpOnly`, and `SameSite` attributes. Missing `Secure` is MED (-5),
   missing `HttpOnly` MED (-3), missing `SameSite` LOW (-2, browsers now
