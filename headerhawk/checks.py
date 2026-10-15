@@ -58,6 +58,7 @@ class Report:
     grade: str = ""
     findings: list[Finding] = field(default_factory=list)
     headers_seen: int = 0
+    cookies_seen: int = 0
     redirect_chain: list[RedirectHop] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -71,6 +72,7 @@ class Report:
             "score": self.score,
             "grade": self.grade,
             "headers_seen": self.headers_seen,
+            "cookies_seen": self.cookies_seen,
             "redirect_chain": [
                 {"url": hop.url, "status": hop.status}
                 for hop in self.redirect_chain
@@ -722,6 +724,127 @@ def check_disclosure(headers: Headers) -> list[Finding]:
     return findings
 
 
+def _parse_set_cookie(value: str) -> tuple[str, dict[str, str]]:
+    """Split a Set-Cookie value into (cookie name, {attribute: value}).
+
+    Attribute names are lowercased; valueless flags (Secure, HttpOnly) map
+    to the empty string. A malformed cookie with no name gets "<unnamed>"
+    so findings stay readable.
+    """
+    parts = value.split(";")
+    name = parts[0].split("=", 1)[0].strip()
+    attrs: dict[str, str] = {}
+    for part in parts[1:]:
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            key, _, val = part.partition("=")
+            attrs[key.strip().lower()] = val.strip()
+        else:
+            attrs[part.lower()] = ""
+    return name or "<unnamed>", attrs
+
+
+def check_cookies(headers: Headers) -> list[Finding]:
+    """Audit Set-Cookie flags: Secure, HttpOnly, SameSite.
+
+    Three attributes make a cookie meaningfully safer. ``Secure`` stops the
+    browser sending it over plain HTTP; ``HttpOnly`` hides it from
+    JavaScript, so an XSS bug cannot steal it; ``SameSite`` limits when
+    browsers send it on cross-site requests (the CSRF control). Browsers
+    now default an absent SameSite to Lax, so a missing attribute is only
+    LOW; everything else missing is a real exposure. A cookie carrying all
+    three is an OK pass.
+    """
+    values = all_values(headers, "set-cookie")
+    if not values:
+        return []  # nothing set; nothing to audit
+    findings: list[Finding] = []
+    for raw in values:
+        name, attrs = _parse_set_cookie(raw)
+        before = len(findings)
+        if "secure" not in attrs:
+            findings.append(Finding(
+                check="Cookie flags", header="Set-Cookie", status="weak",
+                severity="MED", score_delta=-5,
+                summary=f"Cookie {name!r} is missing the Secure flag.",
+                detail=("Without Secure, the browser sends this cookie over "
+                        "plain HTTP too, so anyone on the network path "
+                        "(open Wi-Fi, ISP) can read or steal it."),
+                fix=f"Add the Secure attribute: Set-Cookie: {name}=...; Secure",
+            ))
+        if "httponly" not in attrs:
+            findings.append(Finding(
+                check="Cookie flags", header="Set-Cookie", status="weak",
+                severity="MED", score_delta=-3,
+                summary=f"Cookie {name!r} is missing the HttpOnly flag.",
+                detail=("Without HttpOnly, JavaScript can read this cookie "
+                        "(document.cookie), so a single XSS bug turns into "
+                        "session hijacking."),
+                fix=f"Add the HttpOnly attribute: Set-Cookie: {name}=...; HttpOnly",
+            ))
+        samesite = attrs.get("samesite")
+        if samesite is None:
+            findings.append(Finding(
+                check="Cookie flags", header="Set-Cookie", status="weak",
+                severity="LOW", score_delta=-2,
+                summary=f"Cookie {name!r} has no SameSite attribute.",
+                detail=("Browsers currently default to SameSite=Lax, which is "
+                        "a reasonable default, but older browsers fall back "
+                        "to sending the cookie cross-site. Be explicit: "
+                        "SameSite=Lax for logins, Strict for high-value "
+                        "sessions."),
+                fix=f"Add the attribute: Set-Cookie: {name}=...; SameSite=Lax",
+            ))
+        elif samesite.lower() == "none":
+            if "secure" not in attrs:
+                findings.append(Finding(
+                    check="Cookie flags", header="Set-Cookie", status="weak",
+                    severity="MED", score_delta=-5,
+                    summary=(f"Cookie {name!r} uses SameSite=None without "
+                             "Secure: browsers will reject the cookie."),
+                    detail=("SameSite=None explicitly allows cross-site "
+                            "sending, but browsers require the Secure flag "
+                            "alongside it; without Secure the cookie is "
+                            "dropped entirely, so logins or embeds relying on "
+                            "it silently break."),
+                    fix=(f"Add the Secure attribute: Set-Cookie: {name}=...; "
+                         "Secure; SameSite=None"),
+                ))
+            else:
+                findings.append(Finding(
+                    check="Cookie flags", header="Set-Cookie", status="weak",
+                    severity="LOW", score_delta=-2,
+                    summary=(f"Cookie {name!r} uses SameSite=None: it is sent "
+                             "on cross-site requests by design."),
+                    detail=("SameSite=None is needed for cookies used in "
+                            "third-party contexts (embedded widgets, some "
+                            "SSO flows), but it opts out of the browser's "
+                            "CSRF protection, so make sure the cookie is "
+                            "meant to be cross-site."),
+                ))
+        elif samesite.lower() not in ("lax", "strict"):
+            findings.append(Finding(
+                check="Cookie flags", header="Set-Cookie", status="weak",
+                severity="LOW", score_delta=-2,
+                summary=(f"Cookie {name!r} has an unrecognized SameSite "
+                         f"value: {samesite!r}."),
+                detail=("Browsers only honor None, Lax, and Strict; anything "
+                        "else is ignored and falls back to the Lax default."),
+                fix=(f"Use a valid value: Set-Cookie: {name}=...; "
+                     "SameSite=Lax"),
+            ))
+        if len(findings) == before:
+            findings.append(Finding(
+                check="Cookie flags", header="Set-Cookie", status="pass",
+                severity="OK", score_delta=0,
+                summary=(f"Cookie {name!r} sets Secure, HttpOnly, and "
+                         "SameSite."),
+            ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -762,6 +885,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_permissions_policy(headers)
     findings += check_cross_origin_policies(headers)
     findings += check_disclosure(headers)
+    findings += check_cookies(headers)
     findings += check_conflicting_duplicates(headers)
     findings += check_redirect_chain(meta.get("redirect_chain", []))
 
@@ -778,5 +902,6 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
         grade=grade_for(score),
         findings=findings,
         headers_seen=len(headers),
+        cookies_seen=len(all_values(headers, "set-cookie")),
         redirect_chain=list(meta.get("redirect_chain", [])),
     )

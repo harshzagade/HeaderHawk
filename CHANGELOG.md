@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Cookie flag audit: every `Set-Cookie` is checked for the `Secure`,
+  `HttpOnly`, and `SameSite` attributes. Missing `Secure` is MED (-5),
+  missing `HttpOnly` MED (-3), missing `SameSite` LOW (-2, browsers now
+  default to Lax), `SameSite=None` without `Secure` MED (-5, browsers reject
+  the cookie), and unrecognized values LOW (-2); clean cookies are OK
+  passes. The text-report footer now summarizes how many cookies were
+  audited, and `--json` reports carry a `cookies_seen` count.
 - Bulk mode (`--bulk FILE`): read target URLs from a file (one per line,
   `#` comments and blanks skipped), audit each, and print a summary grade
   table with HTTP status, score, and HIGH/MED finding counts. Unreachable

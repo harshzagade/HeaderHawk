@@ -97,10 +97,19 @@ def render_text(report: Report, color: bool = True,
             lines.append(paint(f"    Fix: {finding.fix}", "cyan"))
         lines.append("")
 
-    lines.append(paint(
-        f"Analyzed {report.headers_seen} response headers. "
-        "Cookie flags are out of scope here - see the CookieScope project.",
-        "dim"))
+    if report.cookies_seen:
+        noun = "cookie" if report.cookies_seen == 1 else "cookies"
+        cookie_issues = sum(1 for f in report.findings
+                            if f.check == "Cookie flags"
+                            and f.severity not in ("OK", "INFO"))
+        noun_issue = "issue" if cookie_issues == 1 else "issues"
+        footer = (f"Analyzed {report.headers_seen} response headers; audited "
+                  f"cookie flags on {report.cookies_seen} {noun} "
+                  f"({cookie_issues} {noun_issue} above).")
+    else:
+        footer = (f"Analyzed {report.headers_seen} response headers. "
+                  "No Set-Cookie headers seen; cookie flags not applicable.")
+    lines.append(paint(footer, "dim"))
     return "\n".join(lines).rstrip() + "\n"
 
 

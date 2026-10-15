@@ -125,7 +125,7 @@ GRADE: F   (score 39/100)
     Why: CORP: same-site stops other sites from loading your resources no-cors (Spectre / resource-theft mitigation).
     Fix: Cross-Origin-Resource-Policy: same-site
 
-Analyzed 12 response headers. Cookie flags are out of scope here - see the CookieScope project.
+Analyzed 12 response headers. No Set-Cookie headers seen; cookie flags not applicable.
 ```
 
 Real terminal capture of the same run (`headerhawk https://example.com` — a
@@ -145,6 +145,7 @@ documentation-reserved domain):
 | Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration) |
 | COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
+| Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
 
@@ -160,8 +161,8 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 - HeaderHawk audits **response headers only**. It does not crawl, inject
   payloads, or test for vulnerabilities. Only scan targets you own or are
   authorized to test.
-- Cookie flag auditing (`Secure`, `HttpOnly`, `SameSite`) is intentionally
-  out of scope here; it belongs to the planned **CookieScope** project.
+- Cookie flag auditing (`Secure`, `HttpOnly`, `SameSite`) is covered as a
+  built-in check — each `Set-Cookie` is audited for the three flags.
 - The HSTS preload-list check queries hstspreload.org, so it only runs in
   live single-URL, `--watch`, and `--compare` mode — never offline or in
   bulk runs.
