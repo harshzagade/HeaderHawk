@@ -2,6 +2,11 @@
 
 ## Unreleased
 ### Added
+- CSP `Report-Only` presence check: when only `Content-Security-Policy-Report-Only`
+  is set, the policy is NOT enforced — flagged as MED (-5) since a green "CSP
+  present" check is a false sense of confidence (XSS protection is the same as
+  having no CSP). Report-only alongside an enforcing policy is noted as
+  informational (policy tuning mode).
 - `--explain SEV`: plain-English explainer for one severity, made for
   non-security teammates. Shows only findings with that severity, each with
   "what it means" and "what to do" notes, and closes with a one-paragraph

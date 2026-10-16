@@ -295,3 +295,36 @@ def test_hsts_preload_silent_without_preload_directive():
 def test_hsts_preload_silent_over_plain_http():
     report = analyze(SECURE, scheme="http", meta={"hsts_preload": "preloaded"})
     assert _preload_findings(report) == []
+
+def _csp_ro_findings(report):
+    return [f for f in report.findings
+            if f.header == "Content-Security-Policy-Report-Only"]
+
+
+def test_csp_report_only_alone_flagged_med():
+    # Only Report-Only: the policy is NOT enforced (false confidence).
+    headers = h(content_security_policy_report_only="default-src 'self'")
+    report = analyze(headers, scheme="https")
+    findings = _csp_ro_findings(report)
+    assert findings and findings[0].severity == "MED"
+    assert findings[0].score_delta == -5
+    assert "NOT enforced" in findings[0].summary
+    # Still counted as missing the enforcing header: empty-headers score 39 minus 5.
+    assert report.score == 34
+
+
+def test_csp_report_only_next_to_enforcing_is_info():
+    headers = dict(SECURE)
+    headers["content-security-policy-report-only"] = ["default-src 'self'"]
+    report = analyze(headers, scheme="https")
+    findings = _csp_ro_findings(report)
+    assert findings and findings[0].severity == "INFO"
+    assert report.score == 100
+
+
+def test_csp_report_only_absent_is_silent():
+    # No report-only header: no findings from this check at all.
+    report = analyze(SECURE, scheme="https")
+    assert _csp_ro_findings(report) == []
+    report2 = analyze({}, scheme="https")
+    assert _csp_ro_findings(report2) == []

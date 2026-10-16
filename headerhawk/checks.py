@@ -270,7 +270,7 @@ def check_csp(headers: Headers) -> list[Finding]:
                     "may load. Without it, any injected script runs."),
             fix=("Content-Security-Policy: default-src 'self'; script-src 'self'; "
                  "object-src 'none'; base-uri 'self'; frame-ancestors 'self'"),
-        )]
+        )] + check_csp_report_only(headers, enforcing_present=False)
     csp = parse_csp("; ".join(values))
     findings: list[Finding] = []
     script_src = csp.get("script-src", csp.get("default-src", []))
@@ -325,6 +325,7 @@ def check_csp(headers: Headers) -> list[Finding]:
                 fix=f"Add {recommended} to the policy.",
             ))
     findings += check_csp_reporting(headers, csp)
+    findings += check_csp_report_only(headers, enforcing_present=True)
     if not findings:
         findings.append(Finding(
             check="Content-Security-Policy", header="Content-Security-Policy",
@@ -389,6 +390,44 @@ def check_csp_reporting(headers: Headers, csp: dict[str, list[str]]) -> list[Fin
                 "legitimate scripts blocked by an over-strict policy stay "
                 "invisible, and attack probes leave no trace server-side."),
         fix="Add report-uri https://example.com/csp-reports (simple) or the report-to + Reporting-Endpoints pair",
+    )]
+
+
+def check_csp_report_only(headers: Headers, enforcing_present: bool) -> list[Finding]:
+    """Content-Security-Policy-Report-Only presence vs. enforcement.
+
+    ``Content-Security-Policy-Report-Only`` makes the browser send violation
+    reports without enforcing anything: no script is ever blocked. A site
+    sending only the report-only header has a false sense of confidence
+    ("we have CSP") while remaining fully exposed to XSS. Report-only next
+    to an enforcing policy is legitimate (tuning a stricter policy before
+    rollout) and gets an INFO note.
+    """
+    if get(headers, "content-security-policy-report-only") is None:
+        return []
+    name = "Content-Security-Policy-Report-Only"
+    if enforcing_present:
+        return [Finding(
+            check="Content-Security-Policy", header=name,
+            status="info", severity="INFO", score_delta=0,
+            summary="Report-Only variant is also sent (policy tuning mode).",
+            detail=("An enforcing Content-Security-Policy is in place, so the "
+                    "report-only copy only produces reports — typically used "
+                    "to test a stricter policy before enforcing it. Make sure "
+                    "the report-only policy matches the enforced one, or its "
+                    "reports describe a policy that was never live."),
+        )]
+    return [Finding(
+        check="Content-Security-Policy", header=name,
+        status="weak", severity="MED", score_delta=-5,
+        summary="Only Content-Security-Policy-Report-Only is set: the policy is NOT enforced.",
+        detail=("Report-Only headers only trigger violation reports; nothing "
+                "is ever blocked. Without a real Content-Security-Policy "
+                "header, XSS protection is the same as having no CSP at all — "
+                "a dashboard showing green checks for 'CSP present' is a "
+                "false sense of security."),
+        fix=("Promote the policy to an enforcing Content-Security-Policy "
+             "header (keep the report-only variant only while tuning it)."),
     )]
 
 
