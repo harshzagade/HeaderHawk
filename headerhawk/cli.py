@@ -16,7 +16,9 @@ from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, preload_status)
 from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
-                      render_explain, render_json, render_text)
+                      render_explain, render_json, render_summary_line,
+                      render_text)
+from .tls import probe_tls
 
 
 _VALID_SEVERITIES = ("HIGH", "MED", "LOW", "INFO", "OK")
@@ -73,6 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "(use '-' or omit FILE with piped stdin).")
     parser.add_argument("--json", action="store_true",
                         help="Emit a machine-readable JSON report.")
+    parser.add_argument("--summary-line", action="store_true",
+                        help="Print a one-line summary (GRADE SCORE HOST, "
+                             "e.g. 'A+ 100 example.com') instead of the full "
+                             "report. Made for status bars and CI matrices. "
+                             "Cannot be combined with --json, --raw, --only, "
+                             "--explain, --bulk, --compare, or --watch.")
     parser.add_argument("--no-color", action="store_true",
                         help="Disable ANSI colors in the text report.")
     parser.add_argument("--only", metavar="SEV",
@@ -161,6 +169,15 @@ def _audit_one(url: str, *, timeout: float,
     """
     result = fetch(url, timeout=timeout, user_agent=user_agent)
     scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
+    tls: object = "unchecked"
+    if scheme == "https":
+        # TLS version/cipher sniff: only makes sense for HTTPS targets.
+        # Never fatal — probe failures surface as an informational finding.
+        parts = urllib.parse.urlsplit(result.final_url)
+        host = parts.hostname or ""
+        port = parts.port or 443
+        if host:
+            tls = probe_tls(host, port=port, timeout=min(timeout, 5.0))
     meta = {
         "url": url,
         "final_url": result.final_url,
@@ -168,6 +185,7 @@ def _audit_one(url: str, *, timeout: float,
         "redirects": result.redirects,
         "elapsed_ms": result.elapsed_ms,
         "redirect_chain": result.chain,
+        "tls": tls,
         "hsts_preload": _hsts_preload_status(result.final_url, result.headers,
                                              scheme, timeout),
     }
@@ -326,9 +344,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.bulk:
-        if args.url or args.headers or args.compare or args.explain:
+        if args.url or args.headers or args.compare or args.explain \
+                or args.summary_line:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, or --explain.", file=sys.stderr)
+                  "--compare, --explain, or --summary-line.", file=sys.stderr)
             return 2
         return run_bulk(args)
 
@@ -337,9 +356,9 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --compare cannot be combined with a URL or --headers.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.explain:
-            print("error: --raw, --only, and --explain apply to single-target "
-                  "mode, not --compare.", file=sys.stderr)
+        if args.raw or args.only or args.explain or args.summary_line:
+            print("error: --raw, --only, --explain, and --summary-line apply "
+                  "to single-target mode, not --compare.", file=sys.stderr)
             return 2
         return run_compare(args)
 
@@ -352,9 +371,11 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --watch needs a live URL to re-audit.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.explain or args.output or args.json:
-            print("error: --raw, --only, --explain, --output, and --json do "
-                  "not apply in --watch mode.", file=sys.stderr)
+        if args.raw or args.only or args.explain or args.output or args.json \
+                or args.summary_line:
+            print("error: --raw, --only, --explain, --output, --json, and "
+                  "--summary-line do not apply in --watch mode.",
+                  file=sys.stderr)
             return 2
         if args.watch <= 0:
             print(f"error: --watch interval must be positive "
@@ -387,6 +408,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     color = not args.no_color and sys.stdout.isatty()
+    if args.summary_line and (args.json or args.raw or args.only or args.explain):
+        print("error: --summary-line cannot be combined with --json, --raw, "
+              "--only, or --explain.", file=sys.stderr)
+        return 2
     try:
         only = _parse_only(args.only)
         explain = _parse_explain(args.explain)
@@ -411,7 +436,9 @@ def main(argv: list[str] | None = None) -> int:
                 # verbatim to the terminal.
                 chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
-    if explain:
+    if args.summary_line:
+        chunks.append(render_summary_line(report))
+    elif explain:
         chunks.append(render_explain(report, explain, color=color))
     else:
         chunks.append(render_json(report) if args.json

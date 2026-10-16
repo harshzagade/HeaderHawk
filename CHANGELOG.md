@@ -54,6 +54,18 @@
   audit prints the full baseline report; later clean audits print one quiet
   heartbeat line; fetch failures mid-run are reported and retried. Ctrl-C
   stops with a summary; `--fail-below` gates every audit.
+- TLS version/cipher sniff (live HTTPS audits only, stdlib `ssl` — no
+  nmap/sslyze): handshakes restricted to each of TLS 1.0..1.3 reveal which
+  versions the server still accepts. TLS 1.0 accepted is HIGH (-10), TLS 1.1
+  MED (-8); a negotiated cipher with weak crypto (RC4, 3DES, NULL, anon,
+  EXPORT suites) is HIGH (-10). A clean TLS 1.3 negotiation is an OK pass.
+  Probe failures surface as informational, never as errors; skipped for
+  offline, bulk, and plain-HTTP targets. `--json` reports carry the probe
+  result under `tls`.
+- `--summary-line`: one-line output (`A+ 100 example.com`) — grade, score,
+  and host only — for status bars and CI matrices. Combines with
+  `--fail-below` and `--output`; rejects combos with `--json`, `--raw`,
+  `--only`, `--explain`, `--bulk`, `--compare`, and `--watch`.
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,

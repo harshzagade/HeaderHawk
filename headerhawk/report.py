@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from dataclasses import dataclass
 
 from . import __version__
@@ -188,6 +189,18 @@ def render_explain(report: Report, severity: str, color: bool = True) -> str:
     lines.append(paint(_explain_paragraph(report, severity, len(findings)),
                        "dim"))
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_summary_line(report: Report) -> str:
+    """One-line summary: ``A+ 100 example.com`` — for status bars / CI matrices.
+
+    Grade, score, and the target host, nothing else. The host comes from the
+    final URL after redirects; for offline (``--headers``) runs the raw
+    header source is used when no host can be parsed.
+    """
+    target = report.final_url or report.url
+    host = urllib.parse.urlsplit(target).hostname or target
+    return f"{report.grade} {report.score} {host}\n"
 
 
 def grade_index(grade: str) -> int:
