@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .tls import TLSInfo
+
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -60,6 +62,7 @@ class Report:
     headers_seen: int = 0
     cookies_seen: int = 0
     redirect_chain: list[RedirectHop] = field(default_factory=list)
+    tls_info: TLSInfo | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +76,7 @@ class Report:
             "grade": self.grade,
             "headers_seen": self.headers_seen,
             "cookies_seen": self.cookies_seen,
+            "tls": self.tls_info.to_dict() if self.tls_info else None,
             "redirect_chain": [
                 {"url": hop.url, "status": hop.status}
                 for hop in self.redirect_chain
@@ -845,6 +849,95 @@ def check_cookies(headers: Headers) -> list[Finding]:
     return findings
 
 
+# Cipher-suite name fragments that indicate broken or obsolete crypto.
+# "DES" catches 3DES (DES-CBC3); no modern cipher name contains it otherwise.
+_WEAK_CIPHER_TOKENS = ("RC4", "DES", "NULL", "ANON", "EXPORT", "MD5")
+
+
+def check_tls(tls: TLSInfo | str | None) -> list[Finding]:
+    """Audit TLS protocol versions and the negotiated cipher (live audits).
+
+    ``tls`` is a ``TLSInfo`` from ``tls.probe_tls()``, the string
+    ``"unchecked"`` when the probe did not run (offline/``--headers``
+    analysis, bulk mode, plain-HTTP targets), or None for older callers.
+    A probe that failed outright surfaces as informational, never as a hard
+    error: handshakes can fail for reasons (SNI quirks, filtering) that say
+    nothing about the site's TLS posture.
+    """
+    if tls is None or tls == "unchecked":
+        return []
+    if tls.error and not tls.versions and not tls.negotiated:
+        return [Finding(
+            check="TLS protocol versions", header="(TLS handshake)",
+            status="info", severity="INFO", score_delta=0,
+            summary=f"TLS probe failed: {tls.error}.",
+            detail=("HeaderHawk could not complete a TLS handshake with "
+                    f"{tls.host}:{tls.port}, so protocol versions and the "
+                    "cipher could not be audited. This does not mean the "
+                    "site's TLS is bad — only that the probe could not "
+                    "reach it."),
+        )]
+    findings: list[Finding] = []
+    versions = set(tls.versions)
+    if "TLSv1" in versions:
+        findings.append(Finding(
+            check="TLS protocol versions", header="(TLS handshake)",
+            status="weak", severity="HIGH", score_delta=-10,
+            summary="Server still accepts TLS 1.0.",
+            detail=("TLS 1.0's cryptography is broken (BEAST, predictable IVs) "
+                    "and every modern browser refuses it; a server that still "
+                    "negotiates it lets a downgrade attacker push connections "
+                    "onto breakable crypto."),
+            fix="Disable TLS 1.0 and 1.1 on the server; keep TLS 1.2 and 1.3 only.",
+        ))
+    elif "TLSv1.1" in versions:
+        findings.append(Finding(
+            check="TLS protocol versions", header="(TLS handshake)",
+            status="weak", severity="MED", score_delta=-8,
+            summary="Server still accepts TLS 1.1.",
+            detail=("TLS 1.1 is deprecated (RFC 8996) and disabled in all "
+                    "modern browsers; keeping it enabled only serves "
+                    "downgrade attacks."),
+            fix="Disable TLS 1.0 and 1.1 on the server; keep TLS 1.2 and 1.3 only.",
+        ))
+    weak = [token for token in _WEAK_CIPHER_TOKENS
+            if token in tls.cipher.upper()]
+    if weak and tls.cipher:
+        findings.append(Finding(
+            check="TLS cipher", header="(TLS handshake)",
+            status="weak", severity="HIGH", score_delta=-10,
+            summary=(f"Negotiated cipher uses weak crypto: {tls.cipher} "
+                     f"({', '.join(weak)})."),
+            detail=("RC4 is fully broken, 3DES/DES fall to Sweet32 on long "
+                    "sessions, and NULL/anon/EXPORT suites offer no (or "
+                    "trivially breakable) encryption. A weak negotiated "
+                    "cipher means the server's cipher preference list still "
+                    "offers these to clients."),
+            fix=("Remove weak suites (RC4, 3DES, NULL, anon, EXPORT, MD5) "
+                 "from the server's cipher list; prefer "
+                 "ECDHE+AESGCM or ChaCha20-Poly1305."),
+        ))
+    if not findings:
+        if tls.negotiated == "TLSv1.3":
+            findings.append(Finding(
+                check="TLS protocol versions", header="(TLS handshake)",
+                status="pass", severity="OK", score_delta=0,
+                summary=("Modern TLS: negotiates TLS 1.3 and rejects legacy "
+                         "protocol versions."),
+            ))
+        elif tls.negotiated:
+            findings.append(Finding(
+                check="TLS protocol versions", header="(TLS handshake)",
+                status="info", severity="INFO", score_delta=0,
+                summary=(f"Negotiates {tls.negotiated}; legacy versions "
+                         "rejected."),
+                detail=("No legacy protocol versions accepted. TLS 1.3 is "
+                        "the current recommendation if the server and "
+                        "clients support it."),
+            ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -888,9 +981,11 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_cookies(headers)
     findings += check_conflicting_duplicates(headers)
     findings += check_redirect_chain(meta.get("redirect_chain", []))
+    findings += check_tls(meta.get("tls", "unchecked"))
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))
 
+    tls_info = meta.get("tls")
     return Report(
         url=meta.get("url", ""),
         final_url=meta.get("final_url", ""),
@@ -904,4 +999,5 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
         headers_seen=len(headers),
         cookies_seen=len(all_values(headers, "set-cookie")),
         redirect_chain=list(meta.get("redirect_chain", [])),
+        tls_info=tls_info if isinstance(tls_info, TLSInfo) else None,
     )

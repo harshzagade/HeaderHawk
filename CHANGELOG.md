@@ -62,10 +62,6 @@
   Probe failures surface as informational, never as errors; skipped for
   offline, bulk, and plain-HTTP targets. `--json` reports carry the probe
   result under `tls`.
-- `--summary-line`: one-line output (`A+ 100 example.com`) — grade, score,
-  and host only — for status bars and CI matrices. Combines with
-  `--fail-below` and `--output`; rejects combos with `--json`, `--raw`,
-  `--only`, `--explain`, `--bulk`, `--compare`, and `--watch`.
 
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,

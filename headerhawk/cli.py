@@ -16,8 +16,7 @@ from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, preload_status)
 from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
-                      render_explain, render_json, render_summary_line,
-                      render_text)
+                      render_explain, render_json, render_text)
 from .tls import probe_tls
 
 
@@ -75,12 +74,6 @@ def build_parser() -> argparse.ArgumentParser:
                              "(use '-' or omit FILE with piped stdin).")
     parser.add_argument("--json", action="store_true",
                         help="Emit a machine-readable JSON report.")
-    parser.add_argument("--summary-line", action="store_true",
-                        help="Print a one-line summary (GRADE SCORE HOST, "
-                             "e.g. 'A+ 100 example.com') instead of the full "
-                             "report. Made for status bars and CI matrices. "
-                             "Cannot be combined with --json, --raw, --only, "
-                             "--explain, --bulk, --compare, or --watch.")
     parser.add_argument("--no-color", action="store_true",
                         help="Disable ANSI colors in the text report.")
     parser.add_argument("--only", metavar="SEV",
@@ -344,10 +337,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.bulk:
-        if args.url or args.headers or args.compare or args.explain \
-                or args.summary_line:
+        if args.url or args.headers or args.compare or args.explain:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, --explain, or --summary-line.", file=sys.stderr)
+                  "--compare, or --explain.", file=sys.stderr)
             return 2
         return run_bulk(args)
 
@@ -356,9 +348,9 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --compare cannot be combined with a URL or --headers.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.explain or args.summary_line:
-            print("error: --raw, --only, --explain, and --summary-line apply "
-                  "to single-target mode, not --compare.", file=sys.stderr)
+        if args.raw or args.only or args.explain:
+            print("error: --raw, --only, and --explain apply to single-target "
+                  "mode, not --compare.", file=sys.stderr)
             return 2
         return run_compare(args)
 
@@ -371,11 +363,9 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --watch needs a live URL to re-audit.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.explain or args.output or args.json \
-                or args.summary_line:
-            print("error: --raw, --only, --explain, --output, --json, and "
-                  "--summary-line do not apply in --watch mode.",
-                  file=sys.stderr)
+        if args.raw or args.only or args.explain or args.output or args.json:
+            print("error: --raw, --only, --explain, --output, and --json do "
+                  "not apply in --watch mode.", file=sys.stderr)
             return 2
         if args.watch <= 0:
             print(f"error: --watch interval must be positive "
@@ -408,10 +398,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     color = not args.no_color and sys.stdout.isatty()
-    if args.summary_line and (args.json or args.raw or args.only or args.explain):
-        print("error: --summary-line cannot be combined with --json, --raw, "
-              "--only, or --explain.", file=sys.stderr)
-        return 2
     try:
         only = _parse_only(args.only)
         explain = _parse_explain(args.explain)
@@ -436,9 +422,7 @@ def main(argv: list[str] | None = None) -> int:
                 # verbatim to the terminal.
                 chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
-    if args.summary_line:
-        chunks.append(render_summary_line(report))
-    elif explain:
+    if explain:
         chunks.append(render_explain(report, explain, color=color))
     else:
         chunks.append(render_json(report) if args.json
