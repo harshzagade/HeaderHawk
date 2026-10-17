@@ -71,11 +71,15 @@ headerhawk --compare http://staging.example.com https://example.com
 # Watch mode: re-audit every 60 seconds, alerting only when the grade or
 # findings change (for monitoring your own site after deploys)
 headerhawk example.com --watch 60
+
+# Subresource Integrity audit: fetch the page HTML and flag external
+# scripts/stylesheets loading without an integrity= hash (MED, -4 each)
+headerhawk example.com --sri
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
-`--bulk FILE`, `--compare URL_A URL_B`, `--watch SEC`, `--version`. Run
+`--sri`, `--bulk FILE`, `--compare URL_A URL_B`, `--watch SEC`, `--version`. Run
 `headerhawk --help` for the full list.
 
 ## Sample output
@@ -157,6 +161,7 @@ documentation-reserved domain):
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
 | TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH). Skipped for offline, bulk, and plain-HTTP targets |
+| Subresource Integrity | `--sri` mode (live single-URL only): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
 
 Every finding explains **why it matters** and gives the **exact header to add**.
 
@@ -167,9 +172,10 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 
 ## Scope notes
 
-- HeaderHawk audits **response headers only**. It does not crawl, inject
-  payloads, or test for vulnerabilities. Only scan targets you own or are
-  authorized to test.
+- HeaderHawk audits **response headers only**, plus (with `--sri`) the page
+  HTML for Subresource Integrity. It does not crawl, inject payloads, or
+  test for vulnerabilities. Only scan targets you own or are authorized to
+  test.
 - Cookie flag auditing (`Secure`, `HttpOnly`, `SameSite`) is covered as a
   built-in check — each `Set-Cookie` is audited for the three flags.
 - The HSTS preload-list check queries hstspreload.org, so it only runs in
@@ -179,7 +185,7 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 ## Development
 
 ```bash
-python3 -m pytest -q     # 118 tests, localhost fixtures only, no real targets
+python3 -m pytest -q     # 194 tests, localhost fixtures only, no real targets
 ```
 
 ## License

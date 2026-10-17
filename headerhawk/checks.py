@@ -61,6 +61,7 @@ class Report:
     findings: list[Finding] = field(default_factory=list)
     headers_seen: int = 0
     cookies_seen: int = 0
+    sri_seen: int = 0  # external scripts/styles found in page HTML (--sri)
     redirect_chain: list[RedirectHop] = field(default_factory=list)
     tls_info: TLSInfo | None = None
 
@@ -76,6 +77,7 @@ class Report:
             "grade": self.grade,
             "headers_seen": self.headers_seen,
             "cookies_seen": self.cookies_seen,
+            "sri_seen": self.sri_seen,
             "tls": self.tls_info.to_dict() if self.tls_info else None,
             "redirect_chain": [
                 {"url": hop.url, "status": hop.status}
@@ -977,6 +979,58 @@ def check_tls(tls: TLSInfo | str | None) -> list[Finding]:
     return findings
 
 
+def check_sri(html: str | None) -> list[Finding]:
+    """Audit Subresource Integrity on external scripts/stylesheets (live only).
+
+    ``html`` is the page body fetched by ``sri.fetch_html()``, or None when
+    the audit runs without ``--sri`` (headers-only analysis has no HTML to
+    inspect, so the check silently opts out). External ``<script src>`` and
+    ``<link rel=stylesheet href>`` without an ``integrity=`` attribute are
+    flagged MED: a compromised CDN or MITM can replace the file and the
+    browser will run it without complaint.
+    """
+    if html is None:
+        return []
+    from .sri import count_protected_resources, find_unprotected_resources
+    unprotected = find_unprotected_resources(html)
+    findings: list[Finding] = []
+    for resource in unprotected:
+        findings.append(Finding(
+            check="Subresource Integrity", header="(page HTML)",
+            status="weak", severity="MED", score_delta=-4,
+            summary=(f"External {resource.tag} loads without Subresource "
+                     f"Integrity: {resource.url}"),
+            detail=("Without an integrity= hash, the browser runs whatever "
+                    "the third party serves. If the CDN account is "
+                    "compromised or the connection is tampered with, every "
+                    "visitor executes the attacker's code. SRI pins the file "
+                    "to a sha384 hash so tampered content is refused."),
+            fix=(f"Add the hash to the tag: integrity=\"sha384-...\" (generate "
+                 f"with: openssl dgst -sha384 -binary file.js | openssl "
+                 f"base64 -A), plus crossorigin=\"anonymous\"."),
+        ))
+    protected = count_protected_resources(html)
+    if not findings:
+        if protected:
+            noun = "resource" if protected == 1 else "resources"
+            findings.append(Finding(
+                check="Subresource Integrity", header="(page HTML)",
+                status="pass", severity="OK", score_delta=0,
+                summary=(f"All {protected} external {noun} pinned with "
+                         "Subresource Integrity."),
+            ))
+        else:
+            findings.append(Finding(
+                check="Subresource Integrity", header="(page HTML)",
+                status="info", severity="INFO", score_delta=0,
+                summary="No external scripts or stylesheets found to audit.",
+                detail=("The page loads no cross-origin <script> or "
+                        "stylesheet resources, so there is nothing for SRI "
+                        "to pin."),
+            ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -1021,6 +1075,9 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_conflicting_duplicates(headers)
     findings += check_redirect_chain(meta.get("redirect_chain", []))
     findings += check_tls(meta.get("tls", "unchecked"))
+    sri_html = meta.get("sri_html")  # page body, only when --sri was requested
+    findings += check_sri(sri_html)
+    sri_seen = meta.get("sri_seen", 0)  # set by the --sri fetch path
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))
 
@@ -1037,6 +1094,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
         findings=findings,
         headers_seen=len(headers),
         cookies_seen=len(all_values(headers, "set-cookie")),
+        sri_seen=sri_seen,
         redirect_chain=list(meta.get("redirect_chain", [])),
         tls_info=tls_info if isinstance(tls_info, TLSInfo) else None,
     )

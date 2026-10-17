@@ -2,6 +2,15 @@
 
 ## Unreleased
 ### Added
+- `--sri` mode: Subresource Integrity audit. Fetches the page HTML (2 MB
+  cap, live single-URL mode only) with a new stdlib-only `sri.py` module
+  (`html.parser`-based tag scan + bounded `fetch_html()`), and flags every
+  external `<script src>` / stylesheet `<link href>` loading without an
+  `integrity=` hash as MED (-4): a tampered CDN copy would run unchallenged.
+  Fully SRI-pinned pages get an OK pass; pages with no external
+  subresources get an informational note. The text-report footer summarizes
+  the SRI audit and `--json` carries an `sri_seen` count. Rejected with
+  `--headers` (offline), `--bulk`, `--watch`, and `--compare`.
 - CSP `Report-Only` presence check: when only `Content-Security-Policy-Report-Only`
   is set, the policy is NOT enforced — flagged as MED (-5) since a green "CSP
   present" check is a false sense of confidence (XSS protection is the same as

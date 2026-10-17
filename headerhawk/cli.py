@@ -18,6 +18,8 @@ from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
                       render_explain, render_json, render_summary_line,
                       render_text)
+from .sri import (count_protected_resources, fetch_html,
+                  find_unprotected_resources)
 from .tls import probe_tls
 
 
@@ -121,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "mode only; cannot be combined with --bulk, "
                              "--compare, --headers, --raw, --only, --explain, "
                              "--output, or --json.")
+    parser.add_argument("--sri", action="store_true",
+                        help="Subresource Integrity audit: fetch the page HTML "
+                             "and flag external scripts/stylesheets loading "
+                             "without an integrity= hash (MED each). Live "
+                             "single-URL mode only; cannot be combined with "
+                             "--headers, --bulk, --watch, or --compare.")
     parser.add_argument("-o", "--output", metavar="FILE",
                         help="Write the report to FILE instead of stdout.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -161,11 +169,14 @@ def _hsts_preload_status(url: str, headers: Headers, scheme: str,
 
 
 def _audit_one(url: str, *, timeout: float,
-               user_agent: str) -> tuple[Report, Headers]:
+               user_agent: str, sri: bool = False) -> tuple[Report, Headers]:
     """Fetch a URL once and return (report, raw headers).
 
     The HSTS preload-list status is queried when the response advertises a
     preload directive (cached per process inside fetch.preload_status).
+    With ``sri=True`` the page HTML is fetched too (bounded at 2 MB) and
+    audited for Subresource Integrity; an HTML fetch failure only prints a
+    warning — the header audit still runs.
     """
     result = fetch(url, timeout=timeout, user_agent=user_agent)
     scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
@@ -178,6 +189,16 @@ def _audit_one(url: str, *, timeout: float,
         port = parts.port or 443
         if host:
             tls = probe_tls(host, port=port, timeout=min(timeout, 5.0))
+    sri_html: str | None = None
+    sri_seen = 0
+    if sri:
+        try:
+            page = fetch_html(url, timeout=timeout, user_agent=user_agent)
+            sri_html = page.html
+            sri_seen = (len(find_unprotected_resources(sri_html))
+                        + count_protected_resources(sri_html))
+        except FetchError as exc:
+            print(f"warning: --sri audit skipped: {exc}", file=sys.stderr)
     meta = {
         "url": url,
         "final_url": result.final_url,
@@ -186,6 +207,8 @@ def _audit_one(url: str, *, timeout: float,
         "elapsed_ms": result.elapsed_ms,
         "redirect_chain": result.chain,
         "tls": tls,
+        "sri_html": sri_html,
+        "sri_seen": sri_seen,
         "hsts_preload": _hsts_preload_status(result.final_url, result.headers,
                                              scheme, timeout),
     }
@@ -345,9 +368,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk:
         if args.url or args.headers or args.compare or args.explain \
-                or args.summary_line:
+                or args.summary_line or args.sri:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, --explain, or --summary-line.", file=sys.stderr)
+                  "--compare, --explain, --summary-line, or --sri.",
+                  file=sys.stderr)
             return 2
         return run_bulk(args)
 
@@ -356,9 +380,9 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --compare cannot be combined with a URL or --headers.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.explain or args.summary_line:
-            print("error: --raw, --only, --explain, and --summary-line apply "
-                  "to single-target mode, not --compare.", file=sys.stderr)
+        if args.raw or args.only or args.explain or args.summary_line or args.sri:
+            print("error: --raw, --only, --explain, --summary-line, and --sri "
+                  "apply to single-target mode, not --compare.", file=sys.stderr)
             return 2
         return run_compare(args)
 
@@ -372,9 +396,9 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
         if args.raw or args.only or args.explain or args.output or args.json \
-                or args.summary_line:
-            print("error: --raw, --only, --explain, --output, --json, and "
-                  "--summary-line do not apply in --watch mode.",
+                or args.summary_line or args.sri:
+            print("error: --raw, --only, --explain, --output, --json, "
+                  "--summary-line, and --sri do not apply in --watch mode.",
                   file=sys.stderr)
             return 2
         if args.watch <= 0:
@@ -386,6 +410,10 @@ def main(argv: list[str] | None = None) -> int:
     offline = args.headers is not None or (args.url is None and not sys.stdin.isatty())
     if args.url and args.headers:
         print("error: pass either a URL or --headers, not both.", file=sys.stderr)
+        return 2
+    if args.sri and offline:
+        print("error: --sri needs a live URL; saved headers have no page "
+              "HTML to audit.", file=sys.stderr)
         return 2
 
     try:
@@ -399,7 +427,8 @@ def main(argv: list[str] | None = None) -> int:
                 print("error: no URL given and nothing piped on stdin.", file=sys.stderr)
                 return 2
             report, raw_headers = _audit_one(args.url, timeout=args.timeout,
-                                             user_agent=args.user_agent)
+                                             user_agent=args.user_agent,
+                                             sri=args.sri)
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -110,6 +110,15 @@ def render_text(report: Report, color: bool = True,
     else:
         footer = (f"Analyzed {report.headers_seen} response headers. "
                   "No Set-Cookie headers seen; cookie flags not applicable.")
+    if report.sri_seen:
+        sri_noun = "resource" if report.sri_seen == 1 else "resources"
+        sri_issues = sum(1 for f in report.findings
+                         if f.check == "Subresource Integrity"
+                         and f.severity not in ("OK", "INFO"))
+        sri_noun_issue = "issue" if sri_issues == 1 else "issues"
+        footer += (f" Audited Subresource Integrity on "
+                   f"{report.sri_seen} external {sri_noun} "
+                   f"({sri_issues} {sri_noun_issue} above).")
     lines.append(paint(footer, "dim"))
     return "\n".join(lines).rstrip() + "\n"
 
