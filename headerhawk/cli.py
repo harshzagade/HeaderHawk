@@ -17,7 +17,7 @@ from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
                       render_explain, render_json, render_summary_line,
-                      render_text)
+                      render_text, report_from_dict)
 from .sri import (count_protected_resources, fetch_html,
                   find_unprotected_resources)
 from .tls import probe_tls
@@ -115,6 +115,15 @@ def build_parser() -> argparse.ArgumentParser:
                              "URL_B, and show what changed (regressed, new, "
                              "resolved, improved findings). Made for before/after "
                              "hardening checks. --fail-below gates on URL_B.")
+    parser.add_argument("--diff-against", metavar="FILE",
+                        help="Compare the fresh audit against a saved --json "
+                             "baseline FILE: drift detection without needing "
+                             "two live URLs. Prints the same before/after "
+                             "diff as --compare; --fail-below gates on the "
+                             "fresh audit. Works with --json for a "
+                             "machine-readable diff. Cannot be combined with "
+                             "--bulk, --compare, --watch, --raw, --only, "
+                             "--explain, or --summary-line.")
     parser.add_argument("--watch", type=float, default=None, metavar="SEC",
                         help="Watch mode: re-audit the URL every SEC seconds "
                              "and print an alert only when the grade or "
@@ -217,6 +226,27 @@ def _audit_one(url: str, *, timeout: float,
 
 def _now() -> str:
     return datetime.datetime.now().strftime("%H:%M:%S")
+
+
+def _load_baseline(path: str) -> Report:
+    """Read a saved ``--json`` baseline report from *path*.
+
+    Raises ValueError with a human-readable message when the file cannot be
+    read, is not JSON, or does not look like a HeaderHawk report.
+    """
+    import json
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except OSError as exc:
+        raise ValueError(f"cannot read baseline file {path!r}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"baseline file {path!r} is not valid JSON: {exc}") from exc
+    try:
+        return report_from_dict(payload)
+    except ValueError as exc:
+        raise ValueError(f"baseline file {path!r}: {exc}") from exc
 
 
 def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
@@ -368,10 +398,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk:
         if args.url or args.headers or args.compare or args.explain \
-                or args.summary_line or args.sri:
+                or args.summary_line or args.sri or args.diff_against:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, --explain, --summary-line, or --sri.",
-                  file=sys.stderr)
+                  "--compare, --explain, --summary-line, --sri, or "
+                  "--diff-against.", file=sys.stderr)
             return 2
         return run_bulk(args)
 
@@ -380,9 +410,11 @@ def main(argv: list[str] | None = None) -> int:
             print("error: --compare cannot be combined with a URL or --headers.",
                   file=sys.stderr)
             return 2
-        if args.raw or args.only or args.explain or args.summary_line or args.sri:
-            print("error: --raw, --only, --explain, --summary-line, and --sri "
-                  "apply to single-target mode, not --compare.", file=sys.stderr)
+        if args.raw or args.only or args.explain or args.summary_line \
+                or args.sri or args.diff_against:
+            print("error: --raw, --only, --explain, --summary-line, --sri, "
+                  "and --diff-against apply to single-target mode, not "
+                  "--compare.", file=sys.stderr)
             return 2
         return run_compare(args)
 
@@ -396,10 +428,10 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
         if args.raw or args.only or args.explain or args.output or args.json \
-                or args.summary_line or args.sri:
+                or args.summary_line or args.sri or args.diff_against:
             print("error: --raw, --only, --explain, --output, --json, "
-                  "--summary-line, and --sri do not apply in --watch mode.",
-                  file=sys.stderr)
+                  "--summary-line, --sri, and --diff-against do not apply "
+                  "in --watch mode.", file=sys.stderr)
             return 2
         if args.watch <= 0:
             print(f"error: --watch interval must be positive "
@@ -455,6 +487,18 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --explain is a text report; it cannot be combined with "
               "--json.", file=sys.stderr)
         return 2
+    if args.diff_against and (args.raw or args.only or args.explain
+                              or args.summary_line):
+        print("error: --diff-against cannot be combined with --raw, --only, "
+              "--explain, or --summary-line.", file=sys.stderr)
+        return 2
+    baseline = None
+    if args.diff_against:
+        try:
+            baseline = _load_baseline(args.diff_against)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     chunks: list[str] = []
     if args.raw:
@@ -465,7 +509,10 @@ def main(argv: list[str] | None = None) -> int:
                 # verbatim to the terminal.
                 chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
-    if args.summary_line:
+    if baseline is not None:
+        chunks.append(render_compare_json(baseline, report) if args.json
+                      else render_compare(baseline, report, color=color))
+    elif args.summary_line:
         chunks.append(render_summary_line(report))
     elif explain:
         chunks.append(render_explain(report, explain, color=color))

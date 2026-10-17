@@ -2,6 +2,15 @@
 
 ## Unreleased
 ### Added
+- `--diff-against FILE`: compare a fresh audit against a saved `--json`
+  baseline (drift detection without needing two live URLs). Rebuilds the
+  baseline into a Report via a new `report.report_from_dict()` (lenient on
+  missing fields, loud on malformed JSON) and renders the same
+  regressed/new/resolved/improved diff as `--compare`; `--json` emits a
+  machine-readable diff, and `--fail-below` gates on the fresh audit.
+  Works in live single-URL mode and `--headers` offline mode; rejected with
+  `--bulk`, `--compare`, `--watch`, `--raw`, `--only`, `--explain`, and
+  `--summary-line`.
 - `--sri` mode: Subresource Integrity audit. Fetches the page HTML (2 MB
   cap, live single-URL mode only) with a new stdlib-only `sri.py` module
   (`html.parser`-based tag scan + bounded `fetch_html()`), and flags every

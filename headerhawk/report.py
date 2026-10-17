@@ -217,6 +217,49 @@ def grade_index(grade: str) -> int:
     return GRADES.index(grade.upper())
 
 
+def report_from_dict(payload: dict) -> Report:
+    """Rebuild a Report from a ``--json`` payload dict.
+
+    Used by ``--diff-against``: replays a saved baseline so it can be diffed
+    against a fresh audit with the standard compare renderer. Unknown or
+    missing fields fall back to harmless defaults; anything that is not a
+    dict at all raises ValueError.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("baseline is not a JSON object")
+    findings = []
+    raw_findings = payload.get("findings", [])
+    if not isinstance(raw_findings, list):
+        raise ValueError("baseline 'findings' is not a list")
+    for raw in raw_findings:
+        if not isinstance(raw, dict):
+            raise ValueError("baseline finding is not an object")
+        findings.append(Finding(
+            check=str(raw.get("check", "")),
+            header=str(raw.get("header", "")),
+            status=str(raw.get("status", "info")),
+            severity=str(raw.get("severity", "INFO")),
+            score_delta=int(raw.get("score_delta", 0) or 0),
+            summary=str(raw.get("summary", "")),
+            detail=str(raw.get("detail", "")),
+            fix=str(raw.get("fix", "")),
+        ))
+    return Report(
+        url=str(payload.get("url", "")),
+        final_url=str(payload.get("final_url", "") or ""),
+        status_code=int(payload.get("status_code", 0) or 0),
+        redirects=int(payload.get("redirects", 0) or 0),
+        elapsed_ms=int(payload.get("elapsed_ms", 0) or 0),
+        scheme=str(payload.get("scheme", "")),
+        score=int(payload.get("score", 100) or 0),
+        grade=str(payload.get("grade", "")),
+        findings=findings,
+        headers_seen=int(payload.get("headers_seen", 0) or 0),
+        cookies_seen=int(payload.get("cookies_seen", 0) or 0),
+        sri_seen=int(payload.get("sri_seen", 0) or 0),
+    )
+
+
 def render_bulk_table(rows: list[BulkResult], color: bool = True) -> str:
     """Summary grade table for bulk mode: one row per target."""
     lines: list[str] = []

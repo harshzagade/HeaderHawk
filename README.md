@@ -68,6 +68,10 @@ headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
 
+# Compare against a saved --json baseline instead of a second live URL
+# (drift detection for CI / post-deploy checks; same diff output)
+headerhawk https://example.com --diff-against baseline.json
+
 # Watch mode: re-audit every 60 seconds, alerting only when the grade or
 # findings change (for monitoring your own site after deploys)
 headerhawk example.com --watch 60
@@ -79,7 +83,8 @@ headerhawk example.com --sri
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
-`--sri`, `--bulk FILE`, `--compare URL_A URL_B`, `--watch SEC`, `--version`. Run
+`--sri`, `--bulk FILE`, `--compare URL_A URL_B`, `--diff-against FILE`,
+`--watch SEC`, `--version`. Run
 `headerhawk --help` for the full list.
 
 ## Sample output
@@ -185,7 +190,7 @@ Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 ## Development
 
 ```bash
-python3 -m pytest -q     # 194 tests, localhost fixtures only, no real targets
+python3 -m pytest -q     # 205 tests, localhost fixtures only, no real targets
 ```
 
 ## License
