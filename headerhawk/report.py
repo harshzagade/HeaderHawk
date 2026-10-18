@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from . import __version__
 from .bulk import BulkResult
 from .checks import GRADES, Finding, Report
+from .history import HistoryEntry
 
 
 _SEVERITY_ORDER = {"HIGH": 0, "MED": 1, "LOW": 2, "INFO": 3, "OK": 4}
@@ -215,6 +216,68 @@ def render_summary_line(report: Report) -> str:
 def grade_index(grade: str) -> int:
     """Position in the grade ladder (0 = best). Raises ValueError if unknown."""
     return GRADES.index(grade.upper())
+
+
+def _history_trend_verdict(rows: list[HistoryEntry]) -> str:
+    """One-word verdict for a run series: improving/declining/steady."""
+    if len(rows) < 2:
+        return "steady"
+    first, last = rows[0].score, rows[-1].score
+    if last > first:
+        return "improving"
+    if last < first:
+        return "declining"
+    return "steady"
+
+
+def render_history_report(entries: list[HistoryEntry], skipped: int = 0,
+                           color: bool = True) -> str:
+    """Render the recorded grade history as a per-URL trend report.
+
+    Runs are grouped by URL (first-seen order); each group shows a run table
+    with the score change versus the previous run, plus a one-line trend
+    verdict. ``skipped`` is the number of malformed lines ignored while
+    reading the history file.
+    """
+    lines: list[str] = []
+    paint = lambda t, c: _paint(t, c, color)  # noqa: E731
+    lines.append(paint(f"HeaderHawk v{__version__} - grade history", "bold"))
+
+    if not entries:
+        lines.append("No history recorded yet.")
+        if skipped:
+            lines.append(f"Skipped {skipped} malformed line(s).")
+        return "\n".join(lines) + "\n"
+
+    urls: dict[str, list[HistoryEntry]] = {}
+    for entry in entries:
+        urls.setdefault(entry.url, []).append(entry)
+    lines.append(f"{len(entries)} run(s) across {len(urls)} URL(s).")
+    if skipped:
+        lines.append(paint(f"Skipped {skipped} malformed line(s) while "
+                           f"reading the history file.", "dim"))
+    lines.append("")
+
+    for url, rows in urls.items():
+        delta = rows[-1].score - rows[0].score
+        verdict = _history_trend_verdict(rows)
+        lines.append(paint(
+            f"{url} — {verdict}: {rows[0].grade} -> {rows[-1].grade} "
+            f"(score {rows[0].score} -> {rows[-1].score}, {delta:+d} "
+            f"over {len(rows)} run(s))", "bold"))
+        lines.append(f"  {'Timestamp':<20} {'Grade':<6} {'Score':<6} Change")
+        prev: HistoryEntry | None = None
+        for row in rows:
+            ts = row.timestamp.replace("T", " ")[:19]
+            if prev is None:
+                change = "first run"
+            else:
+                d = row.score - prev.score
+                change = f"{d:+d}" if d else "—"
+            lines.append(f"  {ts:<20} {row.grade:<6} {row.score:<6} {change}")
+            prev = row
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def report_from_dict(payload: dict) -> Report:

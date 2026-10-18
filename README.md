@@ -79,11 +79,17 @@ headerhawk example.com --watch 60
 # Subresource Integrity audit: fetch the page HTML and flag external
 # scripts/stylesheets loading without an integrity= hash (MED, -4 each)
 headerhawk example.com --sri
+
+# Grade history: record one (timestamp, url, grade, score) row per audit,
+# then print the trend over time
+headerhawk example.com --history grades.jsonl
+headerhawk --history-report grades.jsonl
 ```
 
 Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
-`--sri`, `--bulk FILE`, `--compare URL_A URL_B`, `--diff-against FILE`,
+`--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
+`--compare URL_A URL_B`, `--diff-against FILE`,
 `--watch SEC`, `--version`. Run
 `headerhawk --help` for the full list.
 
@@ -163,6 +169,7 @@ documentation-reserved domain):
 | COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
+| Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
 | TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH). Skipped for offline, bulk, and plain-HTTP targets |

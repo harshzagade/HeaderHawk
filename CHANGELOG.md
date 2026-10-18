@@ -2,6 +2,22 @@
 
 ## Unreleased
 ### Added
+- `__Host-` / `__Secure-` cookie-name prefix validation (RFC 6265bis, new
+  `check_cookie_prefixes()` in `checks.py`, wired into `analyze()`). A
+  `__Secure-` cookie without `Secure` is MED (-5); a `__Host-` cookie missing
+  `Secure`, carrying a `Domain` attribute, or not scoped to `Path=/` is HIGH
+  (-10) per violation — browsers silently ignore non-compliant prefixed
+  cookies. Prefix matching is case-insensitive; fully compliant prefixed
+  cookies get an OK pass. Covered by `tests/test_cookie_prefixes.py`.
+- Grade history: `--history FILE` appends one (timestamp, url, grade, score)
+  JSONL row per audit run (works with `--json`, `-o/--output`,
+  `--summary-line`, and `--headers` offline mode; rejected with `--bulk`,
+  `--compare`, and `--watch`), and `--history-report FILE` prints the trend
+  from the file — per-URL run tables with score deltas plus an
+  improving/declining/steady verdict. New `history.py` module
+  (`append_run()`/`read_history()`; malformed lines are skipped with a
+  count) and `report.render_history_report()`. Covered by
+  `tests/test_history.py`.
 - `--diff-against FILE`: compare a fresh audit against a saved `--json`
   baseline (drift detection without needing two live URLs). Rebuilds the
   baseline into a Report via a new `report.report_from_dict()` (lenient on

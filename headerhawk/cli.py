@@ -13,11 +13,12 @@ from . import __version__
 from .bulk import audit_targets, read_targets
 from .checks import Headers, Report, analyze, get
 from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, preload_status)
+from .history import append_run, read_history
 from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
-                      render_explain, render_json, render_summary_line,
-                      render_text, report_from_dict)
+                      render_explain, render_history_report, render_json,
+                      render_summary_line, render_text, report_from_dict)
 from .sri import (count_protected_resources, fetch_html,
                   find_unprotected_resources)
 from .tls import probe_tls
@@ -138,6 +139,16 @@ def build_parser() -> argparse.ArgumentParser:
                              "without an integrity= hash (MED each). Live "
                              "single-URL mode only; cannot be combined with "
                              "--headers, --bulk, --watch, or --compare.")
+    parser.add_argument("--history", metavar="FILE",
+                        help="Grade history: append (timestamp, url, grade, "
+                             "score) to FILE after this audit, for tracking "
+                             "hardening progress over time. Single-target "
+                             "mode only; cannot be combined with --bulk, "
+                             "--compare, or --watch.")
+    parser.add_argument("--history-report", metavar="FILE",
+                        help="Print the grade-history trend report from FILE "
+                             "(report-only mode; no audit is run). Cannot be "
+                             "combined with any other mode or output option.")
     parser.add_argument("-o", "--output", metavar="FILE",
                         help="Write the report to FILE instead of stdout.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -318,6 +329,23 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
         return 0
 
 
+def run_history_report(args: argparse.Namespace) -> int:
+    """Print the grade-history trend recorded in --history-report FILE."""
+    try:
+        entries, skipped = read_history(args.history_report)
+    except OSError as exc:
+        print(f"error: cannot read history file {args.history_report!r}: "
+              f"{exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    color = not args.no_color and sys.stdout.isatty()
+    sys.stdout.write(render_history_report(entries, skipped=skipped,
+                                           color=color))
+    return 0
+
+
 def run_bulk(args: argparse.Namespace) -> int:
     try:
         targets = read_targets(args.bulk)
@@ -398,12 +426,25 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk:
         if args.url or args.headers or args.compare or args.explain \
-                or args.summary_line or args.sri or args.diff_against:
+                or args.summary_line or args.sri or args.diff_against \
+                or args.history:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, --explain, --summary-line, --sri, or "
-                  "--diff-against.", file=sys.stderr)
+                  "--compare, --explain, --summary-line, --sri, "
+                  "--diff-against, or --history.", file=sys.stderr)
             return 2
         return run_bulk(args)
+
+    if args.history_report:
+        conflicting = (args.url, args.headers, args.bulk, args.compare,
+                       args.watch, args.diff_against, args.sri, args.history,
+                       args.raw, args.only, args.explain, args.summary_line,
+                       args.json, args.output, args.fail_below)
+        if any(conflicting):
+            print("error: --history-report is a report-only mode; it cannot "
+                  "be combined with any other mode or output option.",
+                  file=sys.stderr)
+            return 2
+        return run_history_report(args)
 
     if args.compare:
         if args.url or args.headers:
@@ -411,10 +452,10 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
         if args.raw or args.only or args.explain or args.summary_line \
-                or args.sri or args.diff_against:
+                or args.sri or args.diff_against or args.history:
             print("error: --raw, --only, --explain, --summary-line, --sri, "
-                  "and --diff-against apply to single-target mode, not "
-                  "--compare.", file=sys.stderr)
+                  "--diff-against, and --history apply to single-target "
+                  "mode, not --compare.", file=sys.stderr)
             return 2
         return run_compare(args)
 
@@ -428,10 +469,11 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
         if args.raw or args.only or args.explain or args.output or args.json \
-                or args.summary_line or args.sri or args.diff_against:
+                or args.summary_line or args.sri or args.diff_against \
+                or args.history:
             print("error: --raw, --only, --explain, --output, --json, "
-                  "--summary-line, --sri, and --diff-against do not apply "
-                  "in --watch mode.", file=sys.stderr)
+                  "--summary-line, --sri, --diff-against, and --history do "
+                  "not apply in --watch mode.", file=sys.stderr)
             return 2
         if args.watch <= 0:
             print(f"error: --watch interval must be positive "
@@ -526,6 +568,15 @@ def main(argv: list[str] | None = None) -> int:
             fh.write(output)
     else:
         sys.stdout.write(output)
+
+    if args.history:
+        try:
+            append_run(args.history, report.final_url or report.url,
+                       report.grade, report.score)
+        except OSError as exc:
+            print(f"error: cannot write history to {args.history!r}: {exc}",
+                  file=sys.stderr)
+            return 2
 
     if args.fail_below:
         try:
