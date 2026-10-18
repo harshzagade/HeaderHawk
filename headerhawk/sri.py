@@ -21,15 +21,16 @@ MAX_HTML_BYTES = 2 * 1024 * 1024  # 2 MB cap on the fetched HTML body
 
 @dataclass
 class Subresource:
-    """One external script/stylesheet referenced by the page."""
+    """One external script/stylesheet/image referenced by the page."""
 
-    tag: str          # "script" | "link"
+    tag: str          # "script" | "link" | "img"
     url: str          # absolute URL as written in the HTML
     has_integrity: bool
+    has_crossorigin: bool = False
 
 
 class _SubresourceParser(HTMLParser):
-    """Collect external <script src> and <link rel=stylesheet href> tags."""
+    """Collect external <script src>, <link rel=stylesheet href>, and <img src>."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -43,6 +44,7 @@ class _SubresourceParser(HTMLParser):
                 self.resources.append(Subresource(
                     tag="script", url=src,
                     has_integrity=bool(attrs_map.get("integrity", "").strip()),
+                    has_crossorigin="crossorigin" in attrs_map,
                 ))
         elif tag == "link":
             rel = attrs_map.get("rel", "").lower()
@@ -53,7 +55,17 @@ class _SubresourceParser(HTMLParser):
                     self.resources.append(Subresource(
                         tag="link", url=href,
                         has_integrity=bool(attrs_map.get("integrity", "").strip()),
+                        has_crossorigin="crossorigin" in attrs_map,
                     ))
+        elif tag == "img":
+            # Images are only relevant for the mixed-content check (SRI is
+            # for scripts/stylesheets), but they ride in the same tag scan.
+            src = attrs_map.get("src", "").strip()
+            if src:
+                self.resources.append(Subresource(
+                    tag="img", url=src, has_integrity=False,
+                    has_crossorigin="crossorigin" in attrs_map,
+                ))
 
 
 def _is_external(url: str) -> bool:
@@ -73,12 +85,13 @@ def find_unprotected_resources(html: str) -> list[Subresource]:
     Returns the external subresources WITHOUT integrity attributes. An empty
     list means every external script/stylesheet is SRI-protected (or there
     are none to check); ``protected`` counts the SRI-covered ones for the
-    OK-pass summary.
+    OK-pass summary. ``<img>`` tags are out of SRI scope and are ignored
+    here (they belong to the mixed-content check).
     """
     parser = _SubresourceParser()
     parser.feed(html)
-    return [r for r in parser.resources if _is_external(r.url)
-            and not r.has_integrity]
+    return [r for r in parser.resources if r.tag in ("script", "link")
+            and _is_external(r.url) and not r.has_integrity]
 
 
 def count_protected_resources(html: str) -> int:
@@ -86,7 +99,51 @@ def count_protected_resources(html: str) -> int:
     parser = _SubresourceParser()
     parser.feed(html)
     return sum(1 for r in parser.resources
-               if _is_external(r.url) and r.has_integrity)
+               if r.tag in ("script", "link")
+               and _is_external(r.url) and r.has_integrity)
+
+
+def find_external_resources(html: str) -> list[Subresource]:
+    """Every cross-origin script/stylesheet/image on the page (all tags)."""
+    parser = _SubresourceParser()
+    parser.feed(html)
+    return [r for r in parser.resources if _is_external(r.url)]
+
+
+def count_external_resources(html: str) -> int:
+    """How many cross-origin subresources (scripts, stylesheets, images)
+    the page loads — used for the text-report SRI footer count."""
+    return len(find_external_resources(html))
+
+
+def find_mixed_content(html: str) -> list[Subresource]:
+    """Return subresources loaded over plain ``http://``.
+
+    On an HTTPS page every ``http://`` load is mixed content: scripts and
+    stylesheets are *active* mixed content (browsers block them, silently
+    breaking the page), images are *passive* (browsers degrade and the padlock
+    dies). Protocol-relative ``//`` URLs resolve to the page's own scheme and
+    are not mixed content. The caller only runs this on HTTPS pages.
+    """
+    parser = _SubresourceParser()
+    parser.feed(html)
+    return [r for r in parser.resources
+            if r.url.strip().lower().startswith("http://")]
+
+
+def find_missing_crossorigin(html: str) -> list[Subresource]:
+    """Return SRI-pinned external resources missing ``crossorigin=``.
+
+    A cross-origin ``integrity=`` attribute is ignored unless the resource
+    is fetched with CORS — i.e. the tag carries ``crossorigin="anonymous"``
+    (or the empty/``use-credentials`` forms). Same-origin loads need no CORS
+    and are out of scope here.
+    """
+    parser = _SubresourceParser()
+    parser.feed(html)
+    return [r for r in parser.resources if r.tag in ("script", "link")
+            and _is_external(r.url) and r.has_integrity
+            and not r.has_crossorigin]
 
 
 @dataclass

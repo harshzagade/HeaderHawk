@@ -19,8 +19,7 @@ from .report import (diff_reports, grade_index, render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
                       render_explain, render_history_report, render_json,
                       render_summary_line, render_text, report_from_dict)
-from .sri import (count_protected_resources, fetch_html,
-                  find_unprotected_resources)
+from .sri import (count_external_resources, fetch_html)
 from .tls import probe_tls
 
 
@@ -215,8 +214,7 @@ def _audit_one(url: str, *, timeout: float,
         try:
             page = fetch_html(url, timeout=timeout, user_agent=user_agent)
             sri_html = page.html
-            sri_seen = (len(find_unprotected_resources(sri_html))
-                        + count_protected_resources(sri_html))
+            sri_seen = count_external_resources(sri_html)
         except FetchError as exc:
             print(f"warning: --sri audit skipped: {exc}", file=sys.stderr)
     meta = {

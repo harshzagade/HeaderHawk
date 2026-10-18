@@ -1169,49 +1169,6 @@ def check_mixed_content(html: str | None, scheme: str) -> list[Finding]:
     return findings
 
 
-def check_sri_crossorigin(html: str | None) -> list[Finding]:
-    """Flag SRI hashes missing ``crossorigin=`` (``--sri`` mode, live only).
-
-    ``html`` is the page body fetched by ``sri.fetch_html()``, or None when
-    the audit runs without ``--sri`` (silently opts out). An ``integrity=``
-    hash on a cross-origin ``<script>`` or stylesheet is ignored unless the
-    resource is fetched with CORS — i.e. the tag carries
-    ``crossorigin="anonymous"`` (or the empty / ``use-credentials`` forms).
-    Without it the response is opaque to the page, the hash can never be
-    verified, and a tampered CDN copy loads anyway — the pin is dead weight.
-    """
-    if html is None:
-        return []
-    from .sri import count_protected_resources, find_missing_crossorigin
-    missing = find_missing_crossorigin(html)
-    findings: list[Finding] = []
-    for resource in missing:
-        findings.append(Finding(
-            check="Subresource Integrity", header="(page HTML)",
-            status="weak", severity="LOW", score_delta=-2,
-            summary=(f"SRI hash present but crossorigin= missing: "
-                     f"{resource.tag} {resource.url}"),
-            detail=("The integrity= hash pins this cross-origin file, but "
-                    "without a crossorigin attribute the browser fetches it "
-                    "without CORS. The response is opaque, so the hash can "
-                    "never be checked — browsers ignore the integrity "
-                    "attribute and a compromised CDN copy would load "
-                    "unchallenged. The hash is present but provides no "
-                    "protection."),
-            fix=("Add crossorigin=\"anonymous\" to the tag (next to the "
-                 "integrity= attribute) so the resource is fetched with CORS "
-                 "and the hash is actually verified."),
-        ))
-    if not findings and count_protected_resources(html):
-        findings.append(Finding(
-            check="Subresource Integrity", header="(page HTML)",
-            status="pass", severity="OK", score_delta=0,
-            summary=("Every SRI-pinned resource carries crossorigin=, so the "
-                     "hashes are actually verified."),
-        ))
-    return findings
-
-
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -1260,7 +1217,6 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     sri_html = meta.get("sri_html")  # page body, only when --sri was requested
     findings += check_sri(sri_html)
     findings += check_mixed_content(sri_html, scheme)
-    findings += check_sri_crossorigin(sri_html)
     sri_seen = meta.get("sri_seen", 0)  # set by the --sri fetch path
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))

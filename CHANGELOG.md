@@ -2,15 +2,6 @@
 
 ## Unreleased
 ### Added
-- SRI `crossorigin` check in `--sri` mode: an `integrity=` hash on a
-  cross-origin resource is ignored unless the tag fetches with CORS, so
-  `sri.find_missing_crossorigin()` / `checks.check_sri_crossorigin()` flag
-  every SRI-pinned external script/stylesheet missing `crossorigin=` as
-  LOW (-2) — the pin is dead weight without it. Pages where every pinned
-  resource carries `crossorigin=` get an OK pass; pages with no pinned
-  resources stay silent (the main SRI check covers them). Empty and
-  `use-credentials` attribute values count as present. Covered by 7 new
-  tests in `tests/test_sri.py` (suite 253 green).
 - Mixed-content check in `--sri` mode: on HTTPS targets, every `http://`
   subresource in the fetched HTML (scripts, stylesheets, and `<img>` tags —
   the tag scan now collects images too) is flagged as HIGH (-8) via new
