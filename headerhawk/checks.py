@@ -1116,6 +1116,102 @@ def check_sri(html: str | None) -> list[Finding]:
     return findings
 
 
+def check_mixed_content(html: str | None, scheme: str) -> list[Finding]:
+    """Flag ``http://`` subresources on HTTPS pages (``--sri`` mode, live only).
+
+    ``html`` is the page body fetched by ``sri.fetch_html()``, or None when
+    the audit runs without ``--sri`` (silently opts out). On a plain-HTTP
+    page there is no "mixed" content, so this only runs for HTTPS targets.
+    Scripts/stylesheets are *active* mixed content — browsers block them, so
+    the page breaks or loses functionality — while images are *passive* and
+    kill the padlock's confidentiality guarantee.
+    """
+    if html is None or scheme != "https":
+        return []
+    from .sri import count_external_resources, find_mixed_content
+    mixed = find_mixed_content(html)
+    findings: list[Finding] = []
+    for resource in mixed:
+        active = resource.tag in ("script", "link")
+        findings.append(Finding(
+            check="Mixed content", header="(page HTML)",
+            status="weak", severity="HIGH", score_delta=-8,
+            summary=(f"HTTPS page loads {resource.tag} over plain HTTP: "
+                     f"{resource.url}"),
+            detail=("Mixed content: the page is served over HTTPS but this "
+                    + ("subresource is *active* mixed content — modern "
+                       "browsers block it, so the script or stylesheet may "
+                       "silently fail to load" if active else
+                       "subresource is *passive* mixed content — an on-path "
+                       "attacker can observe or replace the image, and "
+                       "browsers mark the page as not fully secure") + "."),
+            fix=("Load the resource over HTTPS instead (change http:// to "
+                 "https:// and confirm the host serves TLS), or self-host "
+                 "it on the same origin."),
+        ))
+    if not findings:
+        if count_external_resources(html):
+            findings.append(Finding(
+                check="Mixed content", header="(page HTML)",
+                status="pass", severity="OK", score_delta=0,
+                summary=("No mixed content: every external subresource loads "
+                         "over HTTPS."),
+            ))
+        else:
+            findings.append(Finding(
+                check="Mixed content", header="(page HTML)",
+                status="info", severity="INFO", score_delta=0,
+                summary="No external subresources to check for mixed content.",
+                detail=("The page loads no cross-origin scripts, stylesheets "
+                        "or images, so there is nothing that could be mixed "
+                        "content."),
+            ))
+    return findings
+
+
+def check_sri_crossorigin(html: str | None) -> list[Finding]:
+    """Flag SRI hashes missing ``crossorigin=`` (``--sri`` mode, live only).
+
+    ``html`` is the page body fetched by ``sri.fetch_html()``, or None when
+    the audit runs without ``--sri`` (silently opts out). An ``integrity=``
+    hash on a cross-origin ``<script>`` or stylesheet is ignored unless the
+    resource is fetched with CORS — i.e. the tag carries
+    ``crossorigin="anonymous"`` (or the empty / ``use-credentials`` forms).
+    Without it the response is opaque to the page, the hash can never be
+    verified, and a tampered CDN copy loads anyway — the pin is dead weight.
+    """
+    if html is None:
+        return []
+    from .sri import count_protected_resources, find_missing_crossorigin
+    missing = find_missing_crossorigin(html)
+    findings: list[Finding] = []
+    for resource in missing:
+        findings.append(Finding(
+            check="Subresource Integrity", header="(page HTML)",
+            status="weak", severity="LOW", score_delta=-2,
+            summary=(f"SRI hash present but crossorigin= missing: "
+                     f"{resource.tag} {resource.url}"),
+            detail=("The integrity= hash pins this cross-origin file, but "
+                    "without a crossorigin attribute the browser fetches it "
+                    "without CORS. The response is opaque, so the hash can "
+                    "never be checked — browsers ignore the integrity "
+                    "attribute and a compromised CDN copy would load "
+                    "unchallenged. The hash is present but provides no "
+                    "protection."),
+            fix=("Add crossorigin=\"anonymous\" to the tag (next to the "
+                 "integrity= attribute) so the resource is fetched with CORS "
+                 "and the hash is actually verified."),
+        ))
+    if not findings and count_protected_resources(html):
+        findings.append(Finding(
+            check="Subresource Integrity", header="(page HTML)",
+            status="pass", severity="OK", score_delta=0,
+            summary=("Every SRI-pinned resource carries crossorigin=, so the "
+                     "hashes are actually verified."),
+        ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -1163,6 +1259,8 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_tls(meta.get("tls", "unchecked"))
     sri_html = meta.get("sri_html")  # page body, only when --sri was requested
     findings += check_sri(sri_html)
+    findings += check_mixed_content(sri_html, scheme)
+    findings += check_sri_crossorigin(sri_html)
     sri_seen = meta.get("sri_seen", 0)  # set by the --sri fetch path
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))

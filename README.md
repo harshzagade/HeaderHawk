@@ -174,6 +174,8 @@ documentation-reserved domain):
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
 | TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH). Skipped for offline, bulk, and plain-HTTP targets |
 | Subresource Integrity | `--sri` mode (live single-URL only): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
+| SRI `crossorigin` check | `--sri` mode: flags SRI-pinned external resources whose tag lacks `crossorigin=` — LOW (-2) each. Without CORS the browser cannot verify the hash, so the `integrity=` attribute is silently ignored and a tampered CDN copy loads anyway. Same-origin loads are out of scope |
+| Mixed content | `--sri` mode on HTTPS targets: flags `http://` scripts, stylesheets, and images — HIGH (-8) each. Scripts/styles are *active* mixed content (browsers block them); images are *passive* (kill the padlock). Protocol-relative URLs are not mixed content; plain-HTTP pages are out of scope |
 
 Every finding explains **why it matters** and gives the **exact header to add**.
 

@@ -2,6 +2,25 @@
 
 ## Unreleased
 ### Added
+- SRI `crossorigin` check in `--sri` mode: an `integrity=` hash on a
+  cross-origin resource is ignored unless the tag fetches with CORS, so
+  `sri.find_missing_crossorigin()` / `checks.check_sri_crossorigin()` flag
+  every SRI-pinned external script/stylesheet missing `crossorigin=` as
+  LOW (-2) — the pin is dead weight without it. Pages where every pinned
+  resource carries `crossorigin=` get an OK pass; pages with no pinned
+  resources stay silent (the main SRI check covers them). Empty and
+  `use-credentials` attribute values count as present. Covered by 7 new
+  tests in `tests/test_sri.py` (suite 253 green).
+- Mixed-content check in `--sri` mode: on HTTPS targets, every `http://`
+  subresource in the fetched HTML (scripts, stylesheets, and `<img>` tags —
+  the tag scan now collects images too) is flagged as HIGH (-8) via new
+  `sri.find_mixed_content()` / `checks.check_mixed_content()`. Scripts and
+  stylesheets are called out as *active* mixed content (browsers block them)
+  vs. images as *passive* in the finding detail; protocol-relative `//` URLs
+  are not flagged, and plain-HTTP pages or missing HTML opt out silently.
+  Clean HTTPS pages get an OK pass. The text-report SRI footer now counts
+  all external subresources (including images) via `sri.count_external_resources()`.
+  Covered by 10 new tests in `tests/test_sri.py` (suite 246 green).
 - `__Host-` / `__Secure-` cookie-name prefix validation (RFC 6265bis, new
   `check_cookie_prefixes()` in `checks.py`, wired into `analyze()`). A
   `__Secure-` cookie without `Secure` is MED (-5); a `__Host-` cookie missing
