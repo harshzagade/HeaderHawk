@@ -5,12 +5,14 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from headerhawk.checks import analyze, check_mixed_content, check_sri
+from headerhawk.checks import (analyze, check_mixed_content,
+                               check_sri, check_sri_crossorigin)
 from headerhawk.cli import main
 from headerhawk.report import render_text
 from headerhawk.sri import (count_external_resources, count_protected_resources,
                             fetch_html, find_external_resources,
-                            find_mixed_content, find_unprotected_resources)
+                            find_mixed_content, find_missing_crossorigin,
+                            find_unprotected_resources)
 
 HTML_MIXED = """<html><head>
 <script src="https://cdn.example.com/lib.js"></script>
@@ -101,12 +103,12 @@ def test_analyze_wires_sri_and_score():
         "sri_seen": 4,
     })
     sri = [f for f in report.findings if f.check == "Subresource Integrity"]
-    assert len(sri) == 2
+    assert len(sri) == 3  # 2 MED unprotected + 1 LOW missing crossorigin
     assert report.sri_seen == 4
     assert report.to_dict()["sri_seen"] == 4
     # Score reflects the SRI penalties on top of the (missing-header) ones.
     assert report.score == 100 + sum(f.score_delta for f in report.findings)
-    assert sum(f.score_delta for f in sri) == -8
+    assert sum(f.score_delta for f in sri) == -10
 
 
 def test_footer_summarizes_sri_audit():
@@ -284,3 +286,71 @@ def test_count_external_resources_includes_images():
     # images: 1 external (http). Relative img is same-origin, not counted.
     assert count_external_resources(HTML_WITH_MIXED) == 5
     assert find_external_resources(HTML_WITH_MIXED)[-1].tag == "img"
+
+
+# ---------------------------------------------------------------------------
+# SRI crossorigin check (integrity= without crossorigin= is ignored)
+# ---------------------------------------------------------------------------
+
+HTML_CROSSORIGIN = """<html><head>
+<script src="https://cdn.example.com/a.js" integrity="sha384-aaa"></script>
+<script src="https://cdn.example.com/b.js" integrity="sha384-bbb"
+        crossorigin="anonymous"></script>
+<link rel="stylesheet" href="//fonts.example.com/c.css"
+      integrity="sha512-ccc">
+<link rel="stylesheet" href="https://cdn.example.com/d.css"
+      integrity="sha512-ddd" crossorigin="use-credentials">
+<script src="/static/local.js" integrity="sha384-eee"></script>
+</head></html>"""
+
+
+def test_find_missing_crossorigin_flags_only_external_without_it():
+    found = find_missing_crossorigin(HTML_CROSSORIGIN)
+    assert {(r.tag, r.url) for r in found} == {
+        ("script", "https://cdn.example.com/a.js"),
+        ("link", "//fonts.example.com/c.css"),
+    }
+
+
+def test_find_missing_crossorigin_empty_when_all_have_it():
+    assert find_missing_crossorigin(
+        '<script src="https://x.example.com/a.js" integrity="sha384-z" '
+        'crossorigin></script>') == []
+
+
+def test_check_sri_crossorigin_flags_low_per_resource():
+    findings = check_sri_crossorigin(HTML_CROSSORIGIN)
+    assert len(findings) == 2
+    for f in findings:
+        assert f.severity == "LOW" and f.score_delta == -2
+        assert f.check == "Subresource Integrity"
+        assert 'crossorigin="anonymous"' in f.fix
+        assert "ignored" in f.detail or "never be checked" in f.detail
+
+
+def test_check_sri_crossorigin_clean_page_gets_ok_pass():
+    (f,) = check_sri_crossorigin(
+        '<script src="https://x.example.com/a.js" integrity="sha384-z" '
+        'crossorigin="anonymous"></script>')
+    assert f.severity == "OK" and f.score_delta == 0
+
+
+def test_check_sri_crossorigin_skips_when_no_html():
+    assert check_sri_crossorigin(None) == []
+
+
+def test_check_sri_crossorigin_silent_when_nothing_pinned():
+    # No integrity attributes at all: the main SRI check covers this page.
+    assert check_sri_crossorigin(
+        '<script src="https://x.example.com/a.js"></script>') == []
+
+
+def test_analyze_wires_sri_crossorigin():
+    report = analyze({}, scheme="https", meta={
+        "url": "https://example.com",
+        "sri_html": HTML_CROSSORIGIN,
+    })
+    cors = [f for f in report.findings
+            if f.check == "Subresource Integrity" and "crossorigin" in f.summary]
+    assert len(cors) == 2
+    assert all(f.severity == "LOW" for f in cors)
