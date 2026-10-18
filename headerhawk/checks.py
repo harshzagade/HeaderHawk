@@ -791,6 +791,91 @@ def _parse_set_cookie(value: str) -> tuple[str, dict[str, str]]:
     return name or "<unnamed>", attrs
 
 
+def check_cookie_prefixes(headers: Headers) -> list[Finding]:
+    """Validate `__Secure-` / `__Host-` cookie-name prefixes (RFC 6265bis).
+
+    Browsers only honor these prefixes when the cookie follows strict rules —
+    they are a claim of stronger-than-usual hardening, so breaking the rules
+    means the cookie is silently dropped by the browser (sessions break and
+    the name gives false confidence). Prefix matching is case-insensitive.
+
+    - ``__Secure-``: must carry the ``Secure`` attribute (MED when missing).
+    - ``__Host-``: must carry ``Secure``, must NOT have a ``Domain``
+      attribute (host-only by definition), and must have ``Path=/`` — any
+      violation is HIGH.
+    """
+    findings: list[Finding] = []
+    for raw in all_values(headers, "set-cookie"):
+        name, attrs = _parse_set_cookie(raw)
+        lowered = name.lower()
+        if lowered.startswith("__host-"):
+            before = len(findings)
+            if "secure" not in attrs:
+                findings.append(Finding(
+                    check="Cookie name prefixes", header="Set-Cookie",
+                    status="weak", severity="HIGH", score_delta=-10,
+                    summary=(f"Cookie {name!r} uses the __Host- prefix but "
+                             "is missing the Secure flag."),
+                    detail=("Browsers ignore a __Host- cookie that is not "
+                            "marked Secure, so the cookie never reaches the "
+                            "server — sessions or preferences relying on it "
+                            "silently break."),
+                    fix=(f"Set-Cookie: {name}=...; Secure; Path=/ "
+                         "(and no Domain attribute)"),
+                ))
+            if "domain" in attrs:
+                findings.append(Finding(
+                    check="Cookie name prefixes", header="Set-Cookie",
+                    status="weak", severity="HIGH", score_delta=-10,
+                    summary=(f"Cookie {name!r} uses the __Host- prefix but "
+                             "sets a Domain attribute."),
+                    detail=("The __Host- prefix means host-only; any Domain "
+                            "attribute violates the rule and browsers ignore "
+                            "the cookie entirely."),
+                    fix=(f"Remove the Domain attribute: Set-Cookie: {name}=...; "
+                         "Secure; Path=/"),
+                ))
+            if attrs.get("path", "").strip() != "/":
+                findings.append(Finding(
+                    check="Cookie name prefixes", header="Set-Cookie",
+                    status="weak", severity="HIGH", score_delta=-10,
+                    summary=(f"Cookie {name!r} uses the __Host- prefix but "
+                             "does not scope itself to Path=/."),
+                    detail=("The __Host- rules require Path=/; browsers "
+                            "ignore the cookie otherwise, breaking whatever "
+                            "relies on it."),
+                    fix=(f"Set Path=/: Set-Cookie: {name}=...; Secure; Path=/ "
+                         "(and no Domain attribute)"),
+                ))
+            if not any(f.header == "Set-Cookie" for f in findings[before:]):
+                findings.append(Finding(
+                    check="Cookie name prefixes", header="Set-Cookie",
+                    status="pass", severity="OK", score_delta=0,
+                    summary=(f"Cookie {name!r} satisfies the __Host- prefix "
+                             "rules (Secure, Path=/, no Domain)."),
+                ))
+        elif lowered.startswith("__secure-"):
+            if "secure" not in attrs:
+                findings.append(Finding(
+                    check="Cookie name prefixes", header="Set-Cookie",
+                    status="weak", severity="MED", score_delta=-5,
+                    summary=(f"Cookie {name!r} uses the __Secure- prefix but "
+                             "is missing the Secure flag."),
+                    detail=("The __Secure- prefix requires the Secure "
+                            "attribute; browsers ignore the cookie without "
+                            "it, so anything relying on it silently breaks."),
+                    fix=f"Set-Cookie: {name}=...; Secure",
+                ))
+            else:
+                findings.append(Finding(
+                    check="Cookie name prefixes", header="Set-Cookie",
+                    status="pass", severity="OK", score_delta=0,
+                    summary=(f"Cookie {name!r} satisfies the __Secure- "
+                             "prefix rule (Secure flag set)."),
+                ))
+    return findings
+
+
 def check_cookies(headers: Headers) -> list[Finding]:
     """Audit Set-Cookie flags: Secure, HttpOnly, SameSite.
 
@@ -1072,6 +1157,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_cross_origin_policies(headers)
     findings += check_disclosure(headers)
     findings += check_cookies(headers)
+    findings += check_cookie_prefixes(headers)
     findings += check_conflicting_duplicates(headers)
     findings += check_redirect_chain(meta.get("redirect_chain", []))
     findings += check_tls(meta.get("tls", "unchecked"))
