@@ -2,6 +2,12 @@
 
 ## Unreleased
 ### Added
+- `--watch-log FILE` for `--watch` mode: appends timestamped events to FILE
+  (ISO-8601, one per line) — start, per-audit baseline, every `CHANGE DETECTED`
+  alert, mid-run fetch gaps, and the Ctrl-C stop summary — so overnight watch
+  runs leave an audit trail. The file is opened in append mode (fail-fast
+  exit 2 when unwritable), flushed per event, and closed on stop; `--watch-log`
+  without `--watch` exits 2. Covered by 6 new tests in `tests/test_watch.py`.
 - `security.txt` presence check (RFC 9116): in live single-URL mode (including
   `--watch` re-audits) HeaderHawk now fetches `/.well-known/security.txt`
   from the target's origin via a new stdlib-only `fetch.fetch_security_txt()`

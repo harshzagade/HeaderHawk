@@ -76,6 +76,10 @@ headerhawk https://example.com --diff-against baseline.json
 # findings change (for monitoring your own site after deploys)
 headerhawk example.com --watch 60
 
+# Watch mode with an audit trail: append timestamped baseline, change alerts,
+# fetch gaps, and stop events to a log file (overnight runs)
+headerhawk example.com --watch 60 --watch-log watch.log
+
 # Subresource Integrity audit: fetch the page HTML and flag external
 # scripts/stylesheets loading without an integrity= hash (MED, -4 each)
 headerhawk example.com --sri
@@ -90,7 +94,7 @@ Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
 `--compare URL_A URL_B`, `--diff-against FILE`,
-`--watch SEC`, `--version`. Run
+`--watch SEC`, `--watch-log FILE`, `--version`. Run
 `headerhawk --help` for the full list.
 
 ## Sample output

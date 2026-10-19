@@ -133,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "mode only; cannot be combined with --bulk, "
                              "--compare, --headers, --raw, --only, --explain, "
                              "--output, or --json.")
+    parser.add_argument("--watch-log", metavar="FILE",
+                        help="Watch mode only: append timestamped events "
+                             "(baseline, change alerts, fetch gaps, stop) to "
+                             "FILE, so overnight runs leave an audit trail. "
+                             "Requires --watch.")
     parser.add_argument("--sri", action="store_true",
                         help="Subresource Integrity audit: fetch the page HTML "
                              "and flag external scripts/stylesheets loading "
@@ -295,9 +300,26 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                   f"(use one of A+ A B C D E F).", file=sys.stderr)
             return 2
 
+    log_fh = None
+    if args.watch_log:
+        try:
+            log_fh = open(args.watch_log, "a", encoding="utf-8")
+        except OSError as exc:
+            print(f"error: cannot write watch log to {args.watch_log!r}: "
+                  f"{exc}", file=sys.stderr)
+            return 2
+
+    def _log(message: str) -> None:
+        """Append a timestamped line to the --watch-log file, if any."""
+        if log_fh is not None:
+            stamp = datetime.datetime.now().isoformat(timespec="seconds")
+            log_fh.write(f"{stamp} {message}\n")
+            log_fh.flush()
+
     print(f"HeaderHawk v{__version__} - watching {args.url}: auditing every "
           f"{interval:g}s; alerting only when the grade or findings change "
           "(Ctrl-C to stop).")
+    _log(f"START watching {args.url} every {interval:g}s")
     prev: Report | None = None
     audits = 0
     started = time.monotonic()
@@ -313,12 +335,15 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                     return 2
                 print(f"[{_now()}] fetch failed: {exc} (keeping the last "
                       f"report; retrying in {interval:g}s)")
+                _log(f"FETCH FAILED: {exc}")
             else:
                 audits += 1
                 if prev is None:
                     print(f"[{_now()}] Baseline: grade {report.grade} "
                           f"(score {report.score}/100).")
                     sys.stdout.write(render_text(report, color=color))
+                    _log(f"BASELINE: grade {report.grade} "
+                         f"(score {report.score}/100)")
                 else:
                     changes = diff_reports(prev, report)
                     if changes:
@@ -331,6 +356,10 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                               f"{delta:+d}); {len(changes)} finding(s) differ.")
                         sys.stdout.write(render_compare(prev, report,
                                                         color=color))
+                        _log(f"CHANGE DETECTED ({direction}): "
+                             f"{prev.grade} -> {report.grade} "
+                             f"(score {prev.score} -> {report.score}, "
+                             f"{delta:+d}); {len(changes)} finding(s) differ")
                     else:
                         print(f"[{_now()}] no change: grade {report.grade} "
                               f"(score {report.score}/100, audit #{audits}).")
@@ -346,7 +375,11 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
         last = f", last grade {prev.grade}" if prev is not None else ""
         print(f"\nStopped watching {args.url} after {audits} audit(s) in "
               f"{elapsed:.0f}s{last}.")
+        _log(f"STOP after {audits} audit(s) in {elapsed:.0f}s{last}")
         return 0
+    finally:
+        if log_fh is not None:
+            log_fh.close()
 
 
 def run_history_report(args: argparse.Namespace) -> int:
@@ -478,6 +511,11 @@ def main(argv: list[str] | None = None) -> int:
                   "mode, not --compare.", file=sys.stderr)
             return 2
         return run_compare(args)
+
+    if args.watch_log and args.watch is None:
+        print("error: --watch-log only applies in --watch mode.",
+              file=sys.stderr)
+        return 2
 
     if args.watch is not None:
         if args.bulk or args.compare or args.headers:

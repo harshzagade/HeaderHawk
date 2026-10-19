@@ -1,6 +1,7 @@
 """Watch-mode tests. No real network: _audit_one is stubbed."""
 
 import argparse
+import re
 import urllib.error
 
 import pytest
@@ -197,3 +198,89 @@ def test_preload_failed_query_is_info_not_error(monkeypatch, capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "could not be verified" in out
+
+
+def _read_log(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def test_watch_log_records_baseline_and_change(monkeypatch, tmp_path, capsys):
+    good = analyze(SECURE, scheme="https")
+    bad = analyze(EMPTY, scheme="https")
+    log = tmp_path / "watch.log"
+    monkeypatch.setattr(cli, "_audit_one", _stub_audit([good, bad]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--watch-log", str(log),
+               "--no-color"]),
+        sleep=_Clock(stop_after=2))
+    assert code == 0
+    lines = _read_log(log).splitlines()
+    assert len(lines) == 4
+    assert lines[0].endswith(f"START watching example.com every 1s")
+    assert "BASELINE: grade" in lines[1]
+    assert "CHANGE DETECTED" in lines[2]
+    assert f"{good.grade} -> {bad.grade}" in lines[2]
+    assert "STOP after 2 audit(s)" in lines[3]
+    for line in lines:  # ISO-8601 timestamp prefix on every log line
+        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} ", line), line
+    # console output unchanged
+    assert "CHANGE DETECTED" in capsys.readouterr().out
+
+
+def test_watch_log_stays_silent_on_change_when_none(monkeypatch, tmp_path):
+    report = analyze(SECURE, scheme="https")
+    log = tmp_path / "watch.log"
+    monkeypatch.setattr(cli, "_audit_one",
+                        _stub_audit([report, report, report]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--watch-log", str(log),
+               "--no-color"]),
+        sleep=_Clock(stop_after=3))
+    assert code == 0
+    log_text = _read_log(log)
+    assert "CHANGE DETECTED" not in log_text
+    assert "BASELINE: grade" in log_text
+    assert "STOP after 3 audit(s)" in log_text
+
+
+def test_watch_log_records_fetch_gap(monkeypatch, tmp_path):
+    report = analyze(SECURE, scheme="https")
+    log = tmp_path / "watch.log"
+    monkeypatch.setattr(cli, "_audit_one",
+                        _stub_audit([report, FetchError("timeout"), report]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--watch-log", str(log),
+               "--no-color"]),
+        sleep=_Clock(stop_after=3))
+    assert code == 0
+    assert "FETCH FAILED: timeout" in _read_log(log)
+
+
+def test_watch_log_appends_to_existing_file(monkeypatch, tmp_path):
+    report = analyze(SECURE, scheme="https")
+    log = tmp_path / "watch.log"
+    log.write_text("old line\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_audit_one", _stub_audit([report]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--watch-log", str(log),
+               "--no-color"]),
+        sleep=_Clock(stop_after=1))
+    assert code == 0
+    assert _read_log(log).startswith("old line\n")
+
+
+def test_watch_log_without_watch_is_rejected(capsys):
+    assert cli.main(["example.com", "--watch-log", "w.log"]) == 2
+    assert "--watch-log only applies" in capsys.readouterr().err
+
+
+def test_watch_log_unwritable_path_exits_2(monkeypatch, tmp_path, capsys):
+    report = analyze(SECURE, scheme="https")
+    monkeypatch.setattr(cli, "_audit_one", _stub_audit([report]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--watch-log",
+               str(tmp_path / "nope" / "w.log"), "--no-color"]),
+        sleep=_Clock(stop_after=1))
+    assert code == 2
+    assert "cannot write watch log" in capsys.readouterr().err
