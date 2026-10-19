@@ -2,6 +2,12 @@
 
 ## Unreleased
 ### Added
+- TLS certificate expiry: the live stdlib-`ssl` probe now reads the leaf
+  certificate's `notAfter` off the same handshake (no extra connection) into
+  `TLSInfo.cert_days_left` / `cert_not_after` (surfaced in `--json` too).
+  `checks.check_tls()` flags an already-expired certificate as HIGH (-10)
+  and one expiring within 30 days as LOW (-2); healthy or unreadable certs
+  stay silent. Covered by 8 new tests in `tests/test_tls.py`.
 - CSP Trusted Types note: on enforcing CSPs, `checks.check_csp_trusted_types()`
   now notes Trusted Types adoption as INFO (never penalized). A policy with
   `require-trusted-types-for 'script'` gets an OK pass; a `trusted-types`

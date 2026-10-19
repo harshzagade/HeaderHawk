@@ -1093,6 +1093,32 @@ def check_tls(tls: TLSInfo | str | None) -> list[Finding]:
                  "from the server's cipher list; prefer "
                  "ECDHE+AESGCM or ChaCha20-Poly1305."),
         ))
+    if tls.cert_days_left is not None:
+        if tls.cert_days_left < 0:
+            days = -tls.cert_days_left
+            findings.append(Finding(
+                check="TLS certificate", header="(TLS handshake)",
+                status="weak", severity="HIGH", score_delta=-10,
+                summary=(f"Server certificate expired {days} "
+                         f"{'day' if days == 1 else 'days'} ago."),
+                detail=("An expired certificate makes browsers show a full "
+                        "interstitial warning and trains users to click "
+                        "through TLS errors — the habit attackers rely on. "
+                        "Automated renewal (ACME/Let's Encrypt) should have "
+                        "caught this."),
+                fix="Renew the certificate immediately and set up automated renewal.",
+            ))
+        elif tls.cert_days_left <= 30:
+            findings.append(Finding(
+                check="TLS certificate", header="(TLS handshake)",
+                status="weak", severity="LOW", score_delta=-2,
+                summary=(f"Server certificate expires in {tls.cert_days_left} "
+                         f"{'day' if tls.cert_days_left == 1 else 'days'}."),
+                detail=("Certificates expire without warning pages until the "
+                        "day they die; a 30-day horizon is the standard cue "
+                        "to renew, especially if renewal is manual."),
+                fix="Renew the certificate before it expires; automate renewal if not already.",
+            ))
     if not findings:
         if tls.negotiated == "TLSv1.3":
             findings.append(Finding(

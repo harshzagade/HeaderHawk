@@ -12,6 +12,7 @@ from __future__ import annotations
 import socket
 import ssl
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 
 _VERSIONS: list[tuple[str, ssl.TLSVersion]] = [
@@ -39,6 +40,8 @@ class TLSInfo:
     cipher: str = ""
     cipher_bits: int = 0
     error: str = ""
+    cert_not_after: str = ""       # raw notAfter string from the leaf cert
+    cert_days_left: int | None = None  # whole days until expiry; None = unknown
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +52,8 @@ class TLSInfo:
             "cipher": self.cipher,
             "cipher_bits": self.cipher_bits,
             "error": self.error,
+            "cert_not_after": self.cert_not_after,
+            "cert_days_left": self.cert_days_left,
         }
 
 
@@ -75,6 +80,27 @@ def _single_version_context(version: ssl.TLSVersion) -> ssl.SSLContext | None:
     except (ssl.SSLError, ValueError, AttributeError):
         return None
     return context
+
+
+def _cert_days_left(peercert: dict | None) -> int | None:
+    """Whole days until the leaf certificate expires, or None if unknown.
+
+    ``getpeercert()`` returns ``{'notAfter': 'Nov 18 10:20:00 2026 GMT', ...}``
+    when certificate verification is off (which this probe deliberately
+    uses). A negative result means the certificate already expired.
+    """
+    if not isinstance(peercert, dict):
+        return None
+    not_after = peercert.get("notAfter")
+    if not not_after:
+        return None
+    try:
+        expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+    delta = expiry - datetime.now(timezone.utc)
+    return int(delta.total_seconds() // 86400)
 
 
 def probe_tls(host: str, port: int = 443, timeout: float = 5.0) -> TLSInfo:
@@ -108,6 +134,17 @@ def probe_tls(host: str, port: int = 443, timeout: float = 5.0) -> TLSInfo:
             if cipher:
                 info.cipher = cipher[0]
                 info.cipher_bits = cipher[2]
+            # Certificate expiry is read off the same handshake: no extra
+            # connection. Missing getpeercert (old stubs) -> unknown, silent.
+            getpeercert = getattr(tls, "getpeercert", None)
+            if getpeercert is not None:
+                try:
+                    cert = getpeercert()
+                except Exception:  # noqa: BLE001 - cert unreadable -> unknown
+                    cert = None
+                if isinstance(cert, dict):
+                    info.cert_not_after = str(cert.get("notAfter") or "")
+                info.cert_days_left = _cert_days_left(cert)
     except Exception as exc:  # noqa: BLE001 - any failure becomes an INFO note
         info.error = str(exc) or type(exc).__name__
     return info

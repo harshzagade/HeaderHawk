@@ -18,6 +18,8 @@ class _Raw:
 
 
 class _TLS:
+    cert_dict = None  # class-level: set by cert-expiry tests
+
     def __enter__(self):
         return self
 
@@ -29,6 +31,9 @@ class _TLS:
 
     def cipher(self):
         return ("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256)
+
+    def getpeercert(self):
+        return _TLS.cert_dict
 
 
 class _FakeContext:
@@ -186,3 +191,79 @@ def test_analyze_skips_tls_when_unchecked():
     report = analyze({}, scheme="https", meta={"url": "https://example.com"})
     assert not [f for f in report.findings if f.check.startswith("TLS")]
     assert report.to_dict()["tls"] is None
+
+
+# --- certificate expiry -----------------------------------------------------
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+
+def _cert_dict(days_from_now):
+    not_after = (datetime.now(timezone.utc)
+                 + timedelta(days=days_from_now)).strftime("%b %d %H:%M:%S %Y GMT")
+    return {"subject": ((("commonName", "example.com"),),),
+            "notAfter": not_after}
+
+
+def _cert_findings(info):
+    return [f for f in check_tls(info) if f.check == "TLS certificate"]
+
+
+def test_probe_reads_cert_expiry_off_same_handshake(fake_net):
+    _TLS.cert_dict = _cert_dict(45)
+    try:
+        info = probe_tls("example.com")
+    finally:
+        _TLS.cert_dict = None
+    assert info.cert_days_left == 44 or info.cert_days_left == 45
+    assert info.cert_not_after != ""
+    assert info.error == ""  # cert reading must not break the probe
+
+
+def test_probe_cert_missing_is_unknown(fake_net):
+    info = probe_tls("example.com")
+    assert info.cert_days_left is None
+    assert info.cert_not_after == ""
+
+
+def test_check_tls_expired_cert_is_high():
+    findings = _cert_findings(_info(cert_days_left=-3))
+    assert len(findings) == 1
+    assert findings[0].severity == "HIGH" and findings[0].score_delta == -10
+    assert "expired" in findings[0].summary
+
+
+def test_check_tls_expiring_cert_is_low():
+    findings = _cert_findings(_info(cert_days_left=10))
+    assert len(findings) == 1
+    assert findings[0].severity == "LOW" and findings[0].score_delta == -2
+    assert "10 days" in findings[0].summary
+
+
+def test_check_tls_cert_boundary_30_days():
+    findings = _cert_findings(_info(cert_days_left=30))
+    assert len(findings) == 1 and findings[0].severity == "LOW"
+    assert _cert_findings(_info(cert_days_left=31)) == []
+
+
+def test_check_tls_healthy_cert_is_silent():
+    # A healthy cert adds no finding; the modern-TLS OK pass still fires.
+    findings = check_tls(_info(cert_days_left=200))
+    assert not _cert_findings(_info(cert_days_left=200))
+    assert len(findings) == 1 and findings[0].severity == "OK"
+
+
+def test_check_tls_unknown_cert_is_silent():
+    assert _cert_findings(_info()) == []
+
+
+def test_cert_fields_round_trip_in_json():
+    report = analyze({}, scheme="https",
+                     meta={"url": "https://example.com",
+                           "tls": _info(cert_days_left=12,
+                                        cert_not_after="notAfter-raw")})
+    payload = report.to_dict()
+    assert payload["tls"]["cert_days_left"] == 12
+    assert payload["tls"]["cert_not_after"] == "notAfter-raw"
+    checks = {f.check for f in report.findings}
+    assert "TLS certificate" in checks
