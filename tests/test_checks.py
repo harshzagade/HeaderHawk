@@ -328,3 +328,42 @@ def test_csp_report_only_absent_is_silent():
     assert _csp_ro_findings(report) == []
     report2 = analyze({}, scheme="https")
     assert _csp_ro_findings(report2) == []
+
+
+def _csp_tt_findings(report):
+    return [f for f in report.findings
+            if f.check == "Content-Security-Policy"
+            and "trusted-type" in f.summary.lower()]
+
+
+def test_csp_trusted_types_enforced_is_ok_pass():
+    headers = h(content_security_policy=("default-src 'self'; script-src 'self'; "
+                                         "trusted-types app default; "
+                                         "require-trusted-types-for 'script'"))
+    report = analyze(headers, scheme="https")
+    findings = _csp_tt_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity == "OK" and findings[0].score_delta == 0
+
+
+def test_csp_trusted_types_allowlist_without_enforcement_is_info():
+    headers = h(content_security_policy="default-src 'self'; trusted-types app")
+    report = analyze(headers, scheme="https")
+    findings = _csp_tt_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity == "INFO" and findings[0].score_delta == 0
+    assert "require them for scripts" in findings[0].summary
+
+
+def test_csp_trusted_types_missing_is_info():
+    report = analyze(SECURE, scheme="https")
+    findings = _csp_tt_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity == "INFO" and findings[0].score_delta == 0
+    # Pure INFO note: the fully-locked config keeps its A+.
+    assert report.score == 100 and report.grade == "A+"
+
+
+def test_csp_trusted_types_not_emitted_when_csp_missing():
+    report = analyze({}, scheme="https")
+    assert _csp_tt_findings(report) == []

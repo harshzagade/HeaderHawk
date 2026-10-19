@@ -2,6 +2,12 @@
 
 ## Unreleased
 ### Added
+- CSP Trusted Types note: on enforcing CSPs, `checks.check_csp_trusted_types()`
+  now notes Trusted Types adoption as INFO (never penalized). A policy with
+  `require-trusted-types-for 'script'` gets an OK pass; a `trusted-types`
+  allow-list without enforcement gets an INFO nudge to add it; a policy with
+  neither gets an INFO hardening note explaining the DOM-XSS gap it closes.
+  Covered by 4 new tests in `tests/test_checks.py`.
 - SRI `crossorigin` check in `--sri` mode: an `integrity=` hash on a
   cross-origin resource is ignored unless the tag fetches with CORS, so
   `sri.find_missing_crossorigin()` / `checks.check_sri_crossorigin()` flag

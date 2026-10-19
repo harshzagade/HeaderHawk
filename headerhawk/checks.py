@@ -327,6 +327,7 @@ def check_csp(headers: Headers) -> list[Finding]:
                 fix=f"Add {recommended} to the policy.",
             ))
     findings += check_csp_reporting(headers, csp)
+    findings += check_csp_trusted_types(csp)
     findings += check_csp_report_only(headers, enforcing_present=True)
     if not findings:
         findings.append(Finding(
@@ -430,6 +431,55 @@ def check_csp_report_only(headers: Headers, enforcing_present: bool) -> list[Fin
                 "false sense of security."),
         fix=("Promote the policy to an enforcing Content-Security-Policy "
              "header (keep the report-only variant only while tuning it)."),
+    )]
+
+
+def check_csp_trusted_types(csp: dict[str, list[str]]) -> list[Finding]:
+    """Trusted Types adoption on an enforcing CSP.
+
+    Trusted Types is the browser's DOM-XSS API: with
+    ``require-trusted-types-for 'script'`` enforced, sinks like
+    ``innerHTML`` refuse plain strings, so DOM-based XSS needs a crafted
+    policy object instead of a string. This is strictly a hardening note
+    (INFO, never a penalty): most real-world CSPs omit it, and enforcing
+    it requires application changes, not just a header tweak.
+    """
+    check = "Content-Security-Policy"
+    required = csp.get("require-trusted-types-for", [])
+    if "'script'" in required:
+        return [Finding(
+            check=check, header=check,
+            status="pass", severity="OK", score_delta=0,
+            summary=("Trusted Types enforced for scripts "
+                     "(require-trusted-types-for 'script')."),
+            detail=("Script sinks such as innerHTML and document.write refuse "
+                    "plain strings, which neutralizes most DOM-based XSS even "
+                    "when an injection point is missed."),
+        )]
+    if "trusted-types" in csp:
+        return [Finding(
+            check=check, header=check,
+            status="info", severity="INFO", score_delta=0,
+            summary=("CSP allow-lists trusted-types policies but does not "
+                     "require them for scripts."),
+            detail=("A trusted-types directive names the Trusted Type "
+                    "policies the page may create, but without "
+                    "require-trusted-types-for 'script' browsers do not "
+                    "enforce them at DOM sinks."),
+            fix=("Add require-trusted-types-for 'script' to the policy once "
+                 "the page's sink usage has been migrated."),
+        )]
+    return [Finding(
+        check=check, header=check,
+        status="info", severity="INFO", score_delta=0,
+        summary="CSP does not use Trusted Types (no trusted-types directives).",
+        detail=("Even a strict CSP cannot stop DOM-based XSS when the page "
+                "writes attacker-controlled strings into innerHTML-style "
+                "sinks. require-trusted-types-for 'script' makes the browser "
+                "reject plain strings at those sinks; it needs application "
+                "changes, so treat it as hardening, not a quick fix."),
+        fix=("Plan require-trusted-types-for 'script' with an explicit "
+             "trusted-types policy list for the app's sink usage."),
     )]
 
 

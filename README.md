@@ -160,7 +160,7 @@ documentation-reserved domain):
 
 | Check | What it looks for |
 |---|---|
-| Content-Security-Policy | Missing policy; `unsafe-inline` / `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged; `Report-Only` variant set without an enforcing policy (false confidence) |
+| Content-Security-Policy | Missing policy; `unsafe-inline` / `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged; `Report-Only` variant set without an enforcing policy (false confidence); Trusted Types adoption — missing `trusted-types` / `require-trusted-types-for 'script'` on enforcing policies is an INFO hardening note |
 | Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence) |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
