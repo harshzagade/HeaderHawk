@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- `security.txt` presence check (RFC 9116): in live single-URL mode (including
+  `--watch` re-audits) HeaderHawk now fetches `/.well-known/security.txt`
+  from the target's origin via a new stdlib-only `fetch.fetch_security_txt()`
+  (404/410 = missing, other fetch failures raise `FetchError`, 32 KB body cap)
+  and `checks.check_security_txt()` notes a missing file or a published file
+  with no `Contact:` field as INFO — never penalized; a published file with a
+  contact gets an OK pass. Silent in offline and bulk mode. Covered by 14 new
+  tests in `tests/test_security_txt.py`.
 - TLS certificate expiry: the live stdlib-`ssl` probe now reads the leaf
   certificate's `notAfter` off the same handshake (no extra connection) into
   `TLSInfo.cert_days_left` / `cert_not_after` (surfaced in `--json` too).

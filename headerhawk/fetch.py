@@ -15,6 +15,8 @@ from .checks import Headers, RedirectHop
 
 
 DEFAULT_USER_AGENT = "HeaderHawk/1.0 (+https://github.com/harshzagade/HeaderHawk)"
+SECURITY_TXT_PATH = "/.well-known/security.txt"
+MAX_SECURITY_TXT_BYTES = 32 * 1024
 
 
 class FetchError(Exception):
@@ -80,6 +82,51 @@ def preload_status(domain: str, timeout: float = 10.0) -> str:
         raise FetchError(
             f"Unexpected hstspreload.org response for {domain}: {payload!r}")
     return status
+
+
+def fetch_security_txt(url: str, timeout: float = 10.0,
+                       user_agent: str = DEFAULT_USER_AGENT) -> str | None:
+    """Fetch ``/.well-known/security.txt`` from the URL's origin (RFC 9116).
+
+    Returns the file text on a 200 response, or None when the server answers
+    404/410 (the file is simply not published). Raises FetchError when the
+    file cannot be retrieved at all — network errors, DNS failures, or an
+    unexpected HTTP status — so callers can distinguish "missing" from
+    "could not check". The body is capped at ``MAX_SECURITY_TXT_BYTES``;
+    security.txt files are tiny by design, and this keeps a misbehaving
+    server from filling memory.
+    """
+    parts = urllib.parse.urlsplit(normalize_url(url))
+    host = parts.hostname or ""
+    if not host:
+        raise FetchError(f"Cannot derive a security.txt origin from {url!r}")
+    port = f":{parts.port}" if parts.port else ""
+    target = f"{parts.scheme}://{host}{port}{SECURITY_TXT_PATH}"
+    request = urllib.request.Request(target,
+                                     headers={"User-Agent": user_agent})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status = response.status
+            if status in (404, 410):
+                return None
+            if status != 200:
+                raise FetchError(
+                    f"security.txt answered HTTP {status} on {target}")
+            raw = response.read(MAX_SECURITY_TXT_BYTES + 1)[:MAX_SECURITY_TXT_BYTES]
+            try:
+                charset = response.headers.get_content_charset() or "utf-8"
+                return raw.decode(charset, errors="replace")
+            except LookupError:
+                return raw.decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (404, 410):
+            return None
+        raise FetchError(
+            f"security.txt answered HTTP {exc.code} on {target}") from exc
+    except (urllib.error.URLError, socket.timeout, TimeoutError,
+            OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise FetchError(f"Could not fetch {target}: {reason}") from exc
 
 
 def normalize_url(url: str) -> str:

@@ -51,7 +51,7 @@ def _stub_audit(reports):
     """Stub cli._audit_one to yield reports (or raise) in order."""
     it = iter(reports)
 
-    def fake(url, *, timeout, user_agent):
+    def fake(url, *, timeout, user_agent, **kwargs):
         item = next(it)
         if isinstance(item, Exception):
             raise item

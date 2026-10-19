@@ -12,7 +12,8 @@ import urllib.parse
 from . import __version__
 from .bulk import audit_targets, read_targets
 from .checks import Headers, Report, analyze, get
-from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, preload_status)
+from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, fetch_security_txt,
+                   preload_status)
 from .history import append_run, read_history
 from .offline import load_headers
 from .report import (diff_reports, grade_index, render_bulk_json,
@@ -188,14 +189,18 @@ def _hsts_preload_status(url: str, headers: Headers, scheme: str,
 
 
 def _audit_one(url: str, *, timeout: float,
-               user_agent: str, sri: bool = False) -> tuple[Report, Headers]:
+               user_agent: str, sri: bool = False,
+               quiet_secondary: bool = False) -> tuple[Report, Headers]:
     """Fetch a URL once and return (report, raw headers).
 
     The HSTS preload-list status is queried when the response advertises a
     preload directive (cached per process inside fetch.preload_status).
     With ``sri=True`` the page HTML is fetched too (bounded at 2 MB) and
     audited for Subresource Integrity; an HTML fetch failure only prints a
-    warning — the header audit still runs.
+    warning — the header audit still runs. ``quiet_secondary`` suppresses
+    the stderr warnings for optional secondary fetches (--sri, security.txt)
+    — used by --watch, where a per-interval warning would just be noise;
+    the failure still surfaces as an INFO finding in each report.
     """
     result = fetch(url, timeout=timeout, user_agent=user_agent)
     scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
@@ -208,6 +213,10 @@ def _audit_one(url: str, *, timeout: float,
         port = parts.port or 443
         if host:
             tls = probe_tls(host, port=port, timeout=min(timeout, 5.0))
+    def _secondary_warning(exc: FetchError, message: str) -> None:
+        if not quiet_secondary:
+            print(f"warning: {message}: {exc}", file=sys.stderr)
+
     sri_html: str | None = None
     sri_seen = 0
     if sri:
@@ -216,7 +225,18 @@ def _audit_one(url: str, *, timeout: float,
             sri_html = page.html
             sri_seen = count_external_resources(sri_html)
         except FetchError as exc:
-            print(f"warning: --sri audit skipped: {exc}", file=sys.stderr)
+            _secondary_warning(exc, "--sri audit skipped")
+    try:
+        # security.txt lives at the origin, independent of the fetched path;
+        # use the final (post-redirect) URL so it tracks the real target.
+        security_body = fetch_security_txt(result.final_url, timeout=timeout,
+                                           user_agent=user_agent)
+        security_txt: tuple[bool, str | None] | None = (
+            (True, security_body) if security_body is not None
+            else (False, None))
+    except FetchError as exc:
+        _secondary_warning(exc, "security.txt check skipped")
+        security_txt = None
     meta = {
         "url": url,
         "final_url": result.final_url,
@@ -229,6 +249,7 @@ def _audit_one(url: str, *, timeout: float,
         "sri_seen": sri_seen,
         "hsts_preload": _hsts_preload_status(result.final_url, result.headers,
                                              scheme, timeout),
+        "security_txt": security_txt,
     }
     return analyze(result.headers, scheme=scheme, meta=meta), result.headers
 
@@ -284,7 +305,8 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
         while True:
             try:
                 report, _ = _audit_one(args.url, timeout=args.timeout,
-                                       user_agent=args.user_agent)
+                                       user_agent=args.user_agent,
+                                       quiet_secondary=True)
             except FetchError as exc:
                 if prev is None:
                     print(f"error: {exc}", file=sys.stderr)

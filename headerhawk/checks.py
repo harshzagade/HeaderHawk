@@ -244,6 +244,61 @@ def check_hsts_preload(headers: Headers, scheme: str,
     )]
 
 
+def check_security_txt(security_txt: tuple[bool, str | None] | str | None
+                       ) -> list[Finding]:
+    """Note whether the site publishes a security.txt contact file (RFC 9116).
+
+    ``security_txt`` is the value from the report meta: ``"unchecked"`` when
+    the check did not run (offline or bulk analysis), None when the fetch
+    was attempted but failed, or a ``(found, text)`` tuple from the live
+    single-URL path. The check never penalizes — it rewards discoverable
+    contact info and otherwise nudges toward publishing the file.
+    """
+    if security_txt == "unchecked":
+        return []
+    if security_txt is None:
+        return [Finding(
+            check="security.txt", header="security.txt", status="info",
+            severity="INFO", score_delta=0,
+            summary="security.txt presence could not be checked in this run.",
+            detail=("HeaderHawk could not retrieve /.well-known/security.txt, "
+                    "so it cannot say whether the site publishes a contact "
+                    "file."),
+        )]
+    found, text = security_txt
+    if not found:
+        return [Finding(
+            check="security.txt", header="security.txt", status="info",
+            severity="INFO", score_delta=0,
+            summary="No security.txt published at /.well-known/security.txt.",
+            detail=("A security.txt file (RFC 9116) tells researchers how to "
+                    "report vulnerabilities instead of guessing at an email "
+                    "address or filing a public issue."),
+            fix="Publish /.well-known/security.txt with a Contact: line.",
+        )]
+    contacts = [
+        line.strip() for line in (text or "").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+        and line.split(":", 1)[0].strip().lower() == "contact"
+    ]
+    if not contacts:
+        return [Finding(
+            check="security.txt", header="security.txt", status="info",
+            severity="INFO", score_delta=0,
+            summary=("security.txt is published but has no Contact: field — "
+                     "researchers cannot reach anyone through it."),
+            detail=("RFC 9116 requires at least one Contact field; a contact "
+                    "file without one is dead weight."),
+            fix="Add a 'Contact: mailto:security@example.com' line.",
+        )]
+    return [Finding(
+        check="security.txt", header="security.txt", status="pass",
+        severity="OK", score_delta=0,
+        summary=(f"security.txt published with "
+                 f"{len(contacts)} contact line(s)."),
+    )]
+
+
 def parse_csp(value: str) -> dict[str, list[str]]:
     """Parse a CSP header value into {directive: [sources]} (lowercased)."""
     directives: dict[str, list[str]] = {}
@@ -1321,6 +1376,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_hsts(headers, scheme)
     findings += check_hsts_preload(headers, scheme,
                                    meta.get("hsts_preload", "unchecked"))
+    findings += check_security_txt(meta.get("security_txt", "unchecked"))
     findings += check_csp(headers)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)
