@@ -68,6 +68,9 @@ headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
 
+# Same diff, but hide INFO/OK-only changes so reviews focus on real changes
+headerhawk --compare http://staging.example.com https://example.com --ignore-info
+
 # Compare against a saved --json baseline instead of a second live URL
 # (drift detection for CI / post-deploy checks; same diff output)
 headerhawk https://example.com --diff-against baseline.json

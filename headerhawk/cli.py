@@ -115,7 +115,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Compare two targets side by side: fetch URL_A and "
                              "URL_B, and show what changed (regressed, new, "
                              "resolved, improved findings). Made for before/after "
-                             "hardening checks. --fail-below gates on URL_B.")
+                             "hardening checks. --fail-below gates on URL_B. "
+                             "Add --ignore-info to hide INFO/OK-only diffs.")
+    parser.add_argument("--ignore-info", action="store_true",
+                        help="Compare modes only: hide INFO/OK-only diffs in "
+                             "--compare and --diff-against output so "
+                             "before/after reviews focus on real changes. "
+                             "A diff is hidden only when every finding it "
+                             "carries is INFO or OK severity.")
     parser.add_argument("--diff-against", metavar="FILE",
                         help="Compare the fresh audit against a saved --json "
                              "baseline FILE: drift detection without needing "
@@ -449,8 +456,10 @@ def run_compare(args: argparse.Namespace) -> int:
         reports.append(report)
 
     color = not args.no_color and sys.stdout.isatty()
-    output = (render_compare_json(*reports) if args.json
-              else render_compare(*reports, color=color))
+    output = (render_compare_json(*reports, ignore_info=args.ignore_info)
+              if args.json
+              else render_compare(*reports, color=color,
+                                  ignore_info=args.ignore_info))
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
@@ -476,6 +485,11 @@ def run_compare(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.ignore_info and not (args.compare or args.diff_against):
+        print("error: --ignore-info only applies with --compare or "
+              "--diff-against.", file=sys.stderr)
+        return 2
 
     if args.bulk:
         if args.url or args.headers or args.compare or args.explain \
@@ -610,8 +624,11 @@ def main(argv: list[str] | None = None) -> int:
                 chunks.append(f"{_terminal_safe(name)}: {_terminal_safe(value)}")
         chunks.append("")
     if baseline is not None:
-        chunks.append(render_compare_json(baseline, report) if args.json
-                      else render_compare(baseline, report, color=color))
+        chunks.append(render_compare_json(baseline, report,
+                                          ignore_info=args.ignore_info)
+                      if args.json
+                      else render_compare(baseline, report, color=color,
+                                          ignore_info=args.ignore_info))
     elif args.summary_line:
         chunks.append(render_summary_line(report))
     elif explain:

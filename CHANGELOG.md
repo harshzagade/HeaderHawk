@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- `--ignore-info` for `--compare` / `--diff-against`: hides INFO/OK-only diffs
+  so before/after reviews focus on real changes. A diff row is dropped only
+  when every finding it carries (before and/or after) is INFO or OK severity;
+  rows where one side is MED or worse are kept. When every diff is filtered
+  out, the text report says so explicitly instead of claiming no differences,
+  and the machine-readable diff gains an `"ignore_info"` flag. Covered by 7
+  new tests in `tests/test_compare.py`.
 - `--watch-log FILE` for `--watch` mode: appends timestamped events to FILE
   (ISO-8601, one per line) — start, per-audit baseline, every `CHANGE DETECTED`
   alert, mid-run fetch gaps, and the Ctrl-C stop summary — so overnight watch

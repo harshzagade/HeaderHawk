@@ -403,13 +403,29 @@ def _finding_rank(finding: Finding) -> tuple[int, int]:
     return (_SEVERITY_ORDER.get(finding.severity, 9), finding.score_delta)
 
 
-def diff_reports(before: Report, after: Report) -> list[CompareRow]:
+_INFO_ONLY_SEVERITIES = ("OK", "INFO")
+
+
+def _row_is_info_only(row: CompareRow) -> bool:
+    """A diff row is info-only when every finding it carries (before and/or
+    after) is INFO or OK severity."""
+    findings = [f for f in (row.before, row.after) if f is not None]
+    return bool(findings) and all(f.severity in _INFO_ONLY_SEVERITIES
+                                  for f in findings)
+
+
+def diff_reports(before: Report, after: Report,
+                 ignore_info: bool = False) -> list[CompareRow]:
     """Diff two reports finding-by-finding.
 
     Findings are matched on (check, header, summary). A finding present in
     both with a worse severity/delta in ``after`` is a regression; with a
     better one, an improvement. Findings only in ``after`` are new; only in
     ``before`` are resolved. Unchanged findings are omitted.
+
+    With ``ignore_info`` set, rows whose findings are all INFO/OK severity
+    are dropped, so before/after reviews focus on real changes. A row where
+    either side is MED or worse is kept.
     """
     before_map = {_finding_key(f): f for f in before.findings}
     after_map = {_finding_key(f): f for f in after.findings}
@@ -427,7 +443,10 @@ def diff_reports(before: Report, after: Report) -> list[CompareRow]:
             rows.append(CompareRow("new", new.check, new.header, None, new))
     # Stable, readable order: regressions first, then new, resolved, improved.
     order = {"regressed": 0, "new": 1, "resolved": 2, "improved": 3}
-    return sorted(rows, key=lambda r: (order[r.verdict], r.check, r.header))
+    rows = sorted(rows, key=lambda r: (order[r.verdict], r.check, r.header))
+    if ignore_info:
+        rows = [r for r in rows if not _row_is_info_only(r)]
+    return rows
 
 
 def _verdict_line(row: CompareRow) -> str:
@@ -447,7 +466,8 @@ def _verdict_line(row: CompareRow) -> str:
     return f"{finding.summary}{tag}"
 
 
-def render_compare(before: Report, after: Report, color: bool = True) -> str:
+def render_compare(before: Report, after: Report, color: bool = True,
+                   ignore_info: bool = False) -> str:
     """Side-by-side before/after comparison of two audit reports."""
     lines: list[str] = []
     paint = lambda t, c: _paint(t, c, color)  # noqa: E731
@@ -461,11 +481,20 @@ def render_compare(before: Report, after: Report, color: bool = True) -> str:
     lines.append(paint(f"  Score change: {delta:+d} "
                        f"({before.grade} -> {after.grade})",
                        "green" if delta > 0 else "red" if delta < 0 else "dim"))
+    if ignore_info:
+        lines.append(paint("  (INFO/OK-only diffs hidden by --ignore-info)",
+                           "dim"))
     lines.append("")
 
-    rows = diff_reports(before, after)
+    rows = diff_reports(before, after, ignore_info=ignore_info)
     if not rows:
-        lines.append(paint("No differences: both targets produced identical findings.", "dim"))
+        if ignore_info and diff_reports(before, after):
+            lines.append(paint("No actionable differences: every remaining "
+                               "diff is INFO/OK-only and hidden by "
+                               "--ignore-info.", "dim"))
+        else:
+            lines.append(paint("No differences: both targets produced "
+                               "identical findings.", "dim"))
         return "\n".join(lines).rstrip() + "\n"
 
     icons = {"regressed": ("[!]", "red"), "new": ("[-]", "yellow"),
@@ -485,7 +514,8 @@ def render_compare(before: Report, after: Report, color: bool = True) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_compare_json(before: Report, after: Report) -> str:
+def render_compare_json(before: Report, after: Report,
+                        ignore_info: bool = False) -> str:
     """Machine-readable compare report: both reports plus the diff."""
     def finding_dict(finding: Finding | None) -> dict | None:
         if finding is None:
@@ -508,6 +538,7 @@ def render_compare_json(before: Report, after: Report) -> str:
         "score_delta": after.score - before.score,
         "grade_before": before.grade,
         "grade_after": after.grade,
+        "ignore_info": ignore_info,
         "diff": [
             {
                 "verdict": row.verdict,
@@ -516,7 +547,7 @@ def render_compare_json(before: Report, after: Report) -> str:
                 "before": finding_dict(row.before),
                 "after": finding_dict(row.after),
             }
-            for row in diff_reports(before, after)
+            for row in diff_reports(before, after, ignore_info=ignore_info)
         ],
     }
     return json.dumps(payload, indent=2) + "\n"

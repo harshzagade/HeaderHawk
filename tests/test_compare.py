@@ -176,3 +176,87 @@ def test_cli_compare_fail_below_gates_on_url_b(server, capsys):
     # ...requiring A+ must fail (it is not A+).
     assert main(["--compare", f"{server}/before", f"{server}/after",
                  "--fail-below", "A+", "--no-color"]) == 1
+
+
+def _info_heavy_reports():
+    """Reports whose diffs mix INFO-only and actionable rows."""
+    before = _report(
+        _finding("info resolved", severity="INFO", delta=0, check="OldInfo"),
+        _finding("got better", severity="LOW", delta=-2, check="Better"),
+        _finding("now fine", severity="MED", delta=-5, check="Fixed"),
+        grade="B", score=80)
+    after = _report(
+        _finding("info added", severity="INFO", delta=0, check="NewInfo"),
+        _finding("med added", severity="MED", delta=-5, check="NewMed"),
+        _finding("got better", severity="INFO", delta=0, check="Better"),
+        _finding("now fine", severity="OK", delta=0, check="Fixed"),
+        grade="B", score=80)
+    return before, after
+
+
+def test_diff_reports_ignore_info_default_keeps_everything():
+    before, after = _info_heavy_reports()
+    assert len(diff_reports(before, after)) == 5
+
+
+def test_diff_reports_ignore_info_hides_info_only_rows():
+    before, after = _info_heavy_reports()
+    rows = diff_reports(before, after, ignore_info=True)
+    checks = {r.check for r in rows}
+    # INFO-only new/resolved rows are hidden...
+    assert checks == {"NewMed", "Better", "Fixed"}
+    # ...but a row where one side is MED or worse is kept.
+    better = next(r for r in rows if r.check == "Better")
+    assert better.verdict == "improved"
+    fixed = next(r for r in rows if r.check == "Fixed")
+    assert fixed.verdict == "improved"
+
+
+def test_render_compare_ignore_info_note_and_banner():
+    before = _report(
+        _finding("info one", severity="INFO", delta=0, check="A"),
+        grade="B", score=85)
+    after = _report(
+        _finding("info two", severity="INFO", delta=0, check="B"),
+        grade="B", score=85)
+    out = render_compare(before, after, color=False, ignore_info=True)
+    assert "Score change:" in out
+    assert "--ignore-info" in out
+    assert "INFO/OK-only" in out
+    assert "No differences: both targets produced identical findings." not in out
+
+
+def test_render_compare_identical_reports_with_ignore_info():
+    report = _report(_finding("unchanged", check="SameCheck"),
+                     grade="B", score=85)
+    out = render_compare(report, report, color=False, ignore_info=True)
+    assert "No differences" in out
+    assert "INFO/OK-only" not in out.split("Score change:")[1].split("\n")[0]
+
+
+def test_render_compare_json_ignore_info():
+    before, after = _info_heavy_reports()
+    payload = json.loads(render_compare_json(before, after, ignore_info=True))
+    assert payload["ignore_info"] is True
+    assert {row["check"] for row in payload["diff"]} == {"NewMed", "Better",
+                                                        "Fixed"}
+    payload = json.loads(render_compare_json(before, after))
+    assert payload["ignore_info"] is False
+    assert len(payload["diff"]) == 5
+
+
+def test_cli_ignore_info_rejects_non_compare_modes(capsys):
+    assert main(["--ignore-info"]) == 2
+    assert "only applies" in capsys.readouterr().err
+    assert main(["--ignore-info", "--bulk", "/nonexistent"]) == 2
+    assert "only applies" in capsys.readouterr().err
+
+
+def test_cli_compare_ignore_info_live(server, capsys):
+    code = main(["--compare", f"{server}/before", f"{server}/after",
+                 "--ignore-info", "--no-color"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "hidden by --ignore-info" in out
+    # Actionable diffs (missing-header findings) still show.
+    assert "Resolved" in out
