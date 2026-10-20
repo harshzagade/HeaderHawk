@@ -192,6 +192,41 @@ Every finding explains **why it matters** and gives the **exact header to add**.
 Score starts at 100; each miss subtracts a weighted penalty. `A+` = 100,
 `A` = 90+, `B` = 80+, `C` = 70+, `D` = 55+, `E` = 40+, `F` = below 40.
 
+### Interpreting your grade
+
+Score is `100 - (sum of penalties)`, floored at 0. Penalties are weighted
+by real-world impact, so the fastest way up the ladder is to fix the
+biggest penalties first. Work this list top-down:
+
+1. **Ship a Content-Security-Policy (-20, HIGH).** A missing policy is the
+   single biggest penalty in the tool. Even a conservative
+   `default-src 'self'` baseline buys most of it back.
+2. **Send Strict-Transport-Security on HTTPS (-15, HIGH).** A long
+   `max-age` with `includeSubDomains` also clears the two smaller HSTS
+   penalties (-8 short max-age, -5 missing includeSubDomains).
+3. **Fix the -10s (all HIGH unless noted):** an HTTPS→HTTP redirect
+   downgrade; TLS 1.0 still accepted; a weak negotiated cipher (RC4, 3DES,
+   NULL, anonymous, EXPORT); an expired certificate; `__Host-` cookie
+   prefix violations (each — browsers silently drop the cookie); and
+   `X-Frame-Options` missing or non-standard (MED).
+4. **Kill active mixed content (-8, HIGH).** `http://` scripts and styles
+   on an HTTPS page are blocked by browsers anyway — serve them over
+   HTTPS and the finding (and the broken page) goes away.
+5. **Sweep the MED -8s:** a CSP with `unsafe-inline` / `unsafe-eval`; a
+   missing `X-Content-Type-Options: nosniff`; TLS 1.1 still accepted;
+   a redirect chain that ends on plain HTTP.
+6. **Quick hygiene wins (-5 / -4 / -3):** cookie `Secure` and `HttpOnly`
+   flags, `SameSite` values, SRI hashes on external scripts/styles
+   (-4 each), a `Referrer-Policy`. These are one-line header changes.
+7. **Polish the LOWs (-2 each):** cert expiring within 30 days, HSTS
+   preload-list submission, SRI `crossorigin=` attributes. Small effort,
+   last few points.
+
+INFO and OK findings cost nothing — they are hardening notes and
+confirmations, not score. If the report is noisy, run with
+`--only HIGH,MED` or `--explain HIGH` to see only what moves the grade,
+`--fail-below B` in CI to gate deploys, and `--watch` to catch regressions.
+
 ## Scope notes
 
 - HeaderHawk audits **response headers only**, plus (with `--sri`) the page

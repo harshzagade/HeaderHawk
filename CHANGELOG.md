@@ -2,6 +2,10 @@
 
 ## Unreleased
 ### Added
+- README "Interpreting your grade" section: remediation priority order based
+  on the actual penalty weights (missing CSP -20 first, then missing HSTS
+  -15, the -10s, active mixed content, MED -8s, and hygiene wins), so users
+  know what to fix first for the biggest score gain.
 - `--ignore-info` for `--compare` / `--diff-against`: hides INFO/OK-only diffs
   so before/after reviews focus on real changes. A diff row is dropped only
   when every finding it carries (before and/or after) is INFO or OK severity;
