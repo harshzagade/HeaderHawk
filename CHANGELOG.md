@@ -2,6 +2,18 @@
 
 ## Unreleased
 ### Added
+- Per-directive `unsafe-inline` breakdown in `check_csp()`: the MED (-8)
+  finding now names exactly which directives allow `'unsafe-inline'`
+  (`script-src`, `style-src`, or both), and notes when it is inherited via
+  the `default-src` fallback. A policy whose inline allowance is limited
+  to `style-src` is a separate LOW (-3) finding instead: inline styles
+  cannot execute scripts, so the risk is a fraction of script XSS (residual
+  CSS-based exfiltration only). Covered by 6 new tests in
+  `tests/test_csp_unsafe_inline.py`.
+- `--no-tls` flag for single-target, `--compare`, and `--watch` audits: skips
+  the stdlib TLS version/cipher probe entirely for fast header-only audits
+  (CI speed). When skipped the TLS check reports nothing — it never
+  penalizes the grade. Covered by 4 new tests in `tests/test_no_tls.py`.
 - README "Interpreting your grade" section: remediation priority order based
   on the actual penalty weights (missing CSP -20 first, then missing HSTS
   -15, the -10s, active mixed content, MED -8s, and hygiene wins), so users

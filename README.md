@@ -93,7 +93,8 @@ headerhawk example.com --history grades.jsonl
 headerhawk --history-report grades.jsonl
 ```
 
-Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `-o/--output FILE`,
+Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `--no-tls`,
+`-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
 `--compare URL_A URL_B`, `--diff-against FILE`,
@@ -167,7 +168,7 @@ documentation-reserved domain):
 
 | Check | What it looks for |
 |---|---|
-| Content-Security-Policy | Missing policy; `unsafe-inline` / `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged; `Report-Only` variant set without an enforcing policy (false confidence); Trusted Types adoption — missing `trusted-types` / `require-trusted-types-for 'script'` on enforcing policies is an INFO hardening note |
+| Content-Security-Policy | Missing policy; per-directive `unsafe-inline` breakdown — `script-src` (MED, -8, incl. via `default-src` fallback) vs `style-src`-only (LOW, -3, scripts unaffected); `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged; `Report-Only` variant set without an enforcing policy (false confidence); Trusted Types adoption — missing `trusted-types` / `require-trusted-types-for 'script'` on enforcing policies is an INFO hardening note |
 | Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence) |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
@@ -179,7 +180,7 @@ documentation-reserved domain):
 | Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
-| TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH), and certificate expiry — expired certs (HIGH), certs expiring within 30 days (LOW). Skipped for offline, bulk, and plain-HTTP targets |
+| TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH), and certificate expiry — expired certs (HIGH), certs expiring within 30 days (LOW). Skipped for offline, bulk, and plain-HTTP targets; `--no-tls` skips it on demand |
 | Subresource Integrity | `--sri` mode (live single-URL only): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
 | SRI `crossorigin` check | `--sri` mode: flags SRI-pinned external resources whose tag lacks `crossorigin=` — LOW (-2) each. Without CORS the browser cannot verify the hash, so the `integrity=` attribute is silently ignored and a tampered CDN copy loads anyway. Same-origin loads are out of scope |
 | Mixed content | `--sri` mode on HTTPS targets: flags `http://` scripts, stylesheets, and images — HIGH (-8) each. Scripts/styles are *active* mixed content (browsers block them); images are *passive* (kill the padlock). Protocol-relative URLs are not mixed content; plain-HTTP pages are out of scope |
@@ -212,7 +213,9 @@ biggest penalties first. Work this list top-down:
 4. **Kill active mixed content (-8, HIGH).** `http://` scripts and styles
    on an HTTPS page are blocked by browsers anyway — serve them over
    HTTPS and the finding (and the broken page) goes away.
-5. **Sweep the MED -8s:** a CSP with `unsafe-inline` / `unsafe-eval`; a
+5. **Sweep the MED -8s:** a CSP with `unsafe-inline` in `script-src`
+   (only `style-src` allowing it is a LOW, -3 — inline styles cannot
+   run scripts); `unsafe-eval` is a LOW (-3) hygiene item too; a
    missing `X-Content-Type-Options: nosniff`; TLS 1.1 still accepted;
    a redirect chain that ends on plain HTTP.
 6. **Quick hygiene wins (-5 / -4 / -3):** cookie `Secure` and `HttpOnly`

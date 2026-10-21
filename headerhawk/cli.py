@@ -101,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "--only or --json.")
     parser.add_argument("--timeout", type=float, default=10.0, metavar="SEC",
                         help="Fetch timeout in seconds (default: 10).")
+    parser.add_argument("--no-tls", action="store_true",
+                        help="Skip the TLS version/cipher probe: header-only "
+                             "audits for speed (the TLS check is skipped, not "
+                             "penalized). Applies to single-target, --compare, "
+                             "and --watch audits.")
     parser.add_argument("--user-agent", default=DEFAULT_USER_AGENT, metavar="UA",
                         help="User-Agent string for live fetches.")
     parser.add_argument("--fail-below", metavar="GRADE",
@@ -202,7 +207,8 @@ def _hsts_preload_status(url: str, headers: Headers, scheme: str,
 
 def _audit_one(url: str, *, timeout: float,
                user_agent: str, sri: bool = False,
-               quiet_secondary: bool = False) -> tuple[Report, Headers]:
+               quiet_secondary: bool = False,
+               no_tls: bool = False) -> tuple[Report, Headers]:
     """Fetch a URL once and return (report, raw headers).
 
     The HSTS preload-list status is queried when the response advertises a
@@ -213,11 +219,14 @@ def _audit_one(url: str, *, timeout: float,
     the stderr warnings for optional secondary fetches (--sri, security.txt)
     — used by --watch, where a per-interval warning would just be noise;
     the failure still surfaces as an INFO finding in each report.
+    With ``no_tls=True`` (--no-tls) the TLS version/cipher probe is skipped
+    entirely for fast header-only audits; the TLS check reports nothing
+    rather than penalizing the grade.
     """
     result = fetch(url, timeout=timeout, user_agent=user_agent)
     scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
     tls: object = "unchecked"
-    if scheme == "https":
+    if scheme == "https" and not no_tls:
         # TLS version/cipher sniff: only makes sense for HTTPS targets.
         # Never fatal — probe failures surface as an informational finding.
         parts = urllib.parse.urlsplit(result.final_url)
@@ -335,7 +344,8 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
             try:
                 report, _ = _audit_one(args.url, timeout=args.timeout,
                                        user_agent=args.user_agent,
-                                       quiet_secondary=True)
+                                       quiet_secondary=True,
+                                       no_tls=args.no_tls)
             except FetchError as exc:
                 if prev is None:
                     print(f"error: {exc}", file=sys.stderr)
@@ -449,7 +459,8 @@ def run_compare(args: argparse.Namespace) -> int:
     for url in args.compare:
         try:
             report, _ = _audit_one(url, timeout=args.timeout,
-                                   user_agent=args.user_agent)
+                                   user_agent=args.user_agent,
+                                   no_tls=args.no_tls)
         except FetchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -574,7 +585,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             report, raw_headers = _audit_one(args.url, timeout=args.timeout,
                                              user_agent=args.user_agent,
-                                             sri=args.sri)
+                                             sri=args.sri,
+                                             no_tls=args.no_tls)
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
