@@ -314,6 +314,64 @@ def parse_csp(value: str) -> dict[str, list[str]]:
 _STRONG_SCRIPT_SOURCES = {"'self'", "'none'"}
 
 
+def _csp_unsafe_inline_findings(csp: dict[str, list[str]]) -> list[Finding]:
+    """Report per-directive ``'unsafe-inline'`` CSP coverage.
+
+    Resolves the *effective* script-src and style-src: an explicitly set
+    directive wins, otherwise default-src is the fallback (per the CSP spec),
+    which is why one ``default-src 'unsafe-inline'`` weakens both. Scripts
+    keep the MED (-8) finding, but now name exactly which directive allows
+    inline execution. A policy that only allows inline *styles* gets a
+    separate, weaker LOW finding: inline styles cannot run scripts — the
+    residual risk is CSS-based data exfiltration, which is a fraction of
+    script XSS.
+    """
+    affected: list[tuple[str, bool]] = []  # (directive, from_default_fallback)
+    for directive in ("script-src", "style-src"):
+        if directive in csp:
+            sources, via_fallback = csp[directive], False
+        elif "default-src" in csp:
+            sources, via_fallback = csp["default-src"], True
+        else:
+            continue
+        if "'unsafe-inline'" in sources:
+            affected.append((directive, via_fallback))
+
+    scripts = [d for d, _ in affected if d == "script-src"]
+    styles = [d for d, _ in affected if d == "style-src"]
+    fallback = {d: via for d, via in affected}
+
+    def _where(directive: str) -> str:
+        return (" (inherited from default-src)" if fallback[directive] else "")
+
+    findings: list[Finding] = []
+    if scripts:
+        named = ", ".join(f"'{d}'{_where(d)}" for d, _ in affected)
+        findings.append(Finding(
+            check="Content-Security-Policy", header="Content-Security-Policy",
+            status="weak", severity="MED", score_delta=-8,
+            summary=(f"CSP allows 'unsafe-inline' in: {named}."),
+            detail=("'unsafe-inline' lets any inline <script> run, which "
+                    "largely defeats the XSS protection CSP is meant to give. "
+                    "Use nonces or hashes instead."),
+            fix="Replace 'unsafe-inline' with a nonce: script-src 'self' 'nonce-<random>'",
+        ))
+    elif styles:
+        findings.append(Finding(
+            check="Content-Security-Policy", header="Content-Security-Policy",
+            status="weak", severity="LOW", score_delta=-3,
+            summary=(f"CSP allows 'unsafe-inline' in style-src"
+                     f"{_where('style-src')} — scripts are not affected."),
+            detail=("Inline <style> blocks cannot execute scripts, so this is "
+                    "far less risky than 'unsafe-inline' in script-src. The "
+                    "residual risk is CSS-based data exfiltration via "
+                    "injected styles. Consider nonces or hashes for styles "
+                    "too if the markup is untrusted."),
+            fix="Replace 'unsafe-inline' with a nonce or hash in style-src.",
+        ))
+    return findings
+
+
 def check_csp(headers: Headers) -> list[Finding]:
     """Content-Security-Policy is the main XSS mitigation header."""
     values = all_values(headers, "content-security-policy")
@@ -330,18 +388,8 @@ def check_csp(headers: Headers) -> list[Finding]:
         )] + check_csp_report_only(headers, enforcing_present=False)
     csp = parse_csp("; ".join(values))
     findings: list[Finding] = []
+    findings += _csp_unsafe_inline_findings(csp)
     script_src = csp.get("script-src", csp.get("default-src", []))
-
-    if "'unsafe-inline'" in script_src:
-        findings.append(Finding(
-            check="Content-Security-Policy", header="Content-Security-Policy",
-            status="weak", severity="MED", score_delta=-8,
-            summary="CSP allows 'unsafe-inline' scripts.",
-            detail=("'unsafe-inline' lets any inline <script> run, which "
-                    "largely defeats the XSS protection CSP is meant to give. "
-                    "Use nonces or hashes instead."),
-            fix="Replace 'unsafe-inline' with a nonce: script-src 'self' 'nonce-<random>'",
-        ))
     if "'unsafe-eval'" in script_src:
         findings.append(Finding(
             check="Content-Security-Policy", header="Content-Security-Policy",
