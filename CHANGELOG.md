@@ -7,6 +7,13 @@
   hard-coded cap) for slow or rate-limited servers; non-positive values fail
   fast, and combining it with `--no-tls` (probe skipped) exits 2. Covered
   by 8 new tests in `tests/test_tls_timeout.py`.
+- Permissions-Policy syntax validation in `check_permissions_policy()`: the
+  header value is parsed directive by directive — unrecognized feature names
+  (LOW, -2: browsers ignore unknown directives, so a typo silently defeats
+  the restriction) and malformed `=(...)` shapes or invalid allowlist
+  tokens (LOW, -2) are flagged; removed-from-spec feature names get an INFO
+  note (the directive does nothing). Valid headers keep the OK pass.
+  Covered by 13 new tests in `tests/test_permissions_policy_syntax.py`.
 - Per-directive `unsafe-inline` breakdown in `check_csp()`: the MED (-8)
   finding now names exactly which directives allow `'unsafe-inline'`
   (`script-src`, `style-src`, or both), and notes when it is inherited via

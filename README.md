@@ -173,7 +173,7 @@ documentation-reserved domain):
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
 | Referrer-Policy | Missing; `unsafe-url`; lax browser default |
-| Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration) |
+| Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration); unrecognized feature names — LOW (-2), a typo means the restriction is silently unenforced; deprecated/removed features — INFO (do nothing); malformed `=(...)` shapes or invalid allowlist tokens — LOW (-2) |
 | COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
@@ -222,8 +222,9 @@ biggest penalties first. Work this list top-down:
    flags, `SameSite` values, SRI hashes on external scripts/styles
    (-4 each), a `Referrer-Policy`. These are one-line header changes.
 7. **Polish the LOWs (-2 each):** cert expiring within 30 days, HSTS
-   preload-list submission, SRI `crossorigin=` attributes. Small effort,
-   last few points.
+   preload-list submission, SRI `crossorigin=` attributes, and
+   Permissions-Policy typos / malformed directives (browsers ignore them,
+   so the fix is free points). Small effort, last few points.
 
 INFO and OK findings cost nothing — they are hardening notes and
 confirmations, not score. If the report is noisy, run with

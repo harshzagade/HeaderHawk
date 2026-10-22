@@ -699,29 +699,161 @@ def check_referrer_policy(headers: Headers) -> list[Finding]:
     )]
 
 
+# Permissions-Policy feature names: the standardized set plus the widely
+# implemented ones (client-hint features and Chromium extensions). Browsers
+# silently ignore unknown directives, so a typo defeats the intended
+# restriction — hence unknown names are flagged, not just noted.
+_PERMISSIONS_POLICY_FEATURES = frozenset({
+    "accelerometer", "ambient-light-sensor", "all-screens-capture",
+    "attribution-reporting", "autoplay", "battery", "bluetooth",
+    "browsing-topics", "camera", "captive-portal", "ch-ua", "ch-ua-arch",
+    "ch-ua-bitness", "ch-ua-full-version", "ch-ua-full-version-list",
+    "ch-ua-mobile", "ch-ua-model", "ch-ua-platform", "ch-ua-platform-version",
+    "ch-ua-wow64", "clipboard-read", "clipboard-write", "compute-pressure",
+    "cross-origin-isolated", "device-memory", "direct-sockets", "display-capture",
+    "document-domain", "downlink", "dpr", "ect", "encrypted-media",
+    "execution-while-not-rendered", "execution-while-out-of-viewport",
+    "focus-without-user-activation", "fullscreen", "gamepad", "geolocation",
+    "gyroscope", "hid", "identity-credentials-get", "idle-detection",
+    "interest-cohort", "join-ad-interest-group", "keyboard-map", "local-fonts",
+    "magnetometer", "media-playback-while-not-visible", "microphone", "midi",
+    "otp-credentials", "payment", "picture-in-picture",
+    "private-state-token-issuance", "private-state-token-redemption",
+    "publickey-credentials-create", "publickey-credentials-get", "rtt",
+    "run-ad-auction", "screen-wake-lock", "serial", "shared-storage",
+    "shared-storage-select-url", "smart-card", "speaker", "speaker-selection",
+    "storage-access", "sync-xhr", "unload", "usb", "vibration", "viewport-width",
+    "web-share", "width", "window-management", "xr-spatial-tracking",
+})
+# Feature names removed from the spec / dropped by browsers: the directive
+# is parsed but does nothing.
+_PERMISSIONS_POLICY_DEPRECATED = frozenset({
+    "animations", "font-display-late-swap", "image-compression",
+    "layout-animations", "legacy-image-formats", "lossless-images-max-bpp",
+    "lossless-images-strict", "lossy-images-max-bpp", "max-downscaling-image",
+    "oversized-images", "unoptimized-images", "unsized-media",
+    "vertical-scroll", "window-placement",
+})
+# Allowlist tokens: the keywords, quoted strings, scheme origins, and bare
+# hosts (lenient about bare hosts — some servers send them). A lone "*" is
+# not valid in Permissions-Policy and fails this pattern.
+_PP_TOKEN_RE = re.compile(r"""^(?:
+    self | src                        # keywords
+  | "[^"]*"                           # quoted string
+  | (?:https?|wss?)://[^\s()/]+       # scheme-qualified origin
+  | (?:\*\.?)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d+)?  # bare host
+)$""", re.IGNORECASE | re.VERBOSE)
+_PP_DIRECTIVE_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*=\s*\((.*)\)\s*$",
+                              re.DOTALL)
+
+
+def _split_pp_directives(value: str) -> list[str]:
+    """Split a Permissions-Policy value on top-level commas.
+
+    Commas inside parentheses (or quoted strings, rare here) do not split —
+    a naive ``value.split(",")`` would tear ``camera=("a,b")``-style
+    allowlists apart.
+    """
+    parts, depth, cur = [], 0, []
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:  # unbalanced: fall back to naive split
+                return value.split(",")
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return parts
+
+
 def check_permissions_policy(headers: Headers) -> list[Finding]:
     name = "Permissions-Policy"
-    if get(headers, name) is not None:
+    value = get(headers, name)
+    if value is None:
+        findings = [Finding(
+            check="Permissions-Policy", header=name, status="missing",
+            severity="LOW", score_delta=-3,
+            summary="Permissions-Policy is missing.",
+            detail=("Without it, any third-party script on the page can use the "
+                    "camera, microphone, geolocation, etc."),
+            fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
+        )]
+        if get(headers, "feature-policy") is not None:
+            findings.append(Finding(
+                check="Permissions-Policy", header="Feature-Policy", status="info",
+                severity="INFO", score_delta=0,
+                summary="Legacy Feature-Policy header found; migrate to Permissions-Policy.",
+                detail="Feature-Policy is deprecated; modern browsers only honor Permissions-Policy.",
+            ))
+        return findings
+    if not value.strip():
+        return [Finding(
+            check="Permissions-Policy", header=name, status="weak",
+            severity="INFO", score_delta=0,
+            summary="Permissions-Policy is present but empty; it restricts no features.",
+            fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
+        )]
+    findings = []
+    for directive in _split_pp_directives(value):
+        if not directive.strip():
+            continue  # tolerated trailing comma, e.g. "camera=(),"
+        match = _PP_DIRECTIVE_RE.match(directive)
+        if match is None:
+            findings.append(Finding(
+                check="Permissions-Policy", header=name, status="weak",
+                severity="LOW", score_delta=-2,
+                summary=f"Permissions-Policy directive is malformed: {directive.strip()!r}.",
+                detail=("Browsers ignore invalid directives, so this restriction "
+                        "is not enforced. Expected form: feature=(allowlist), "
+                        "e.g. camera=()."),
+                fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
+            ))
+            continue
+        feature, allowlist = match.group(1).lower(), match.group(2)
+        if feature in _PERMISSIONS_POLICY_DEPRECATED:
+            findings.append(Finding(
+                check="Permissions-Policy", header=name, status="info",
+                severity="INFO", score_delta=0,
+                summary=f"Permissions-Policy names a deprecated feature: {feature!r}.",
+                detail=("This feature was removed from the spec / dropped by "
+                        "browsers; the directive does nothing. Remove it."),
+            ))
+        elif feature not in _PERMISSIONS_POLICY_FEATURES:
+            findings.append(Finding(
+                check="Permissions-Policy", header=name, status="weak",
+                severity="LOW", score_delta=-2,
+                summary=f"Permissions-Policy names an unrecognized feature: {feature!r}.",
+                detail=("Browsers ignore unknown directives, so the intended "
+                        "restriction is not enforced — check for a typo "
+                        "(e.g. 'camrea' instead of 'camera')."),
+                fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
+            ))
+            continue
+        bad_tokens = [t for t in allowlist.split()
+                      if not _PP_TOKEN_RE.match(t)]
+        if bad_tokens:
+            findings.append(Finding(
+                check="Permissions-Policy", header=name, status="weak",
+                severity="LOW", score_delta=-2,
+                summary=(f"Permissions-Policy directive {feature!r} has an "
+                         f"invalid allowlist token: {bad_tokens[0]!r}."),
+                detail=("Browsers ignore invalid allowlist tokens, so this "
+                        "restriction is not enforced. Valid tokens: self, "
+                        "src, quoted strings, or origins such as "
+                        "https://example.com."),
+                fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
+            ))
+    if not findings:
         return [Finding(
             check="Permissions-Policy", header=name, status="pass",
             severity="OK", score_delta=0,
             summary="Permissions-Policy is set (restricts powerful browser features).",
         )]
-    findings = [Finding(
-        check="Permissions-Policy", header=name, status="missing",
-        severity="LOW", score_delta=-3,
-        summary="Permissions-Policy is missing.",
-        detail=("Without it, any third-party script on the page can use the "
-                "camera, microphone, geolocation, etc."),
-        fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
-    )]
-    if get(headers, "feature-policy") is not None:
-        findings.append(Finding(
-            check="Permissions-Policy", header="Feature-Policy", status="info",
-            severity="INFO", score_delta=0,
-            summary="Legacy Feature-Policy header found; migrate to Permissions-Policy.",
-            detail="Feature-Policy is deprecated; modern browsers only honor Permissions-Policy.",
-        ))
     return findings
 
 
