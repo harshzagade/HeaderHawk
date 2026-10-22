@@ -101,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "--only or --json.")
     parser.add_argument("--timeout", type=float, default=10.0, metavar="SEC",
                         help="Fetch timeout in seconds (default: 10).")
+    parser.add_argument("--tls-timeout", type=float, default=5.0,
+                        metavar="SEC",
+                        help="TLS handshake probe timeout in seconds "
+                             "(default: 5). Cannot be combined with --no-tls, "
+                             "which skips the probe entirely.")
     parser.add_argument("--no-tls", action="store_true",
                         help="Skip the TLS version/cipher probe: header-only "
                              "audits for speed (the TLS check is skipped, not "
@@ -208,7 +213,8 @@ def _hsts_preload_status(url: str, headers: Headers, scheme: str,
 def _audit_one(url: str, *, timeout: float,
                user_agent: str, sri: bool = False,
                quiet_secondary: bool = False,
-               no_tls: bool = False) -> tuple[Report, Headers]:
+               no_tls: bool = False,
+               tls_timeout: float = 5.0) -> tuple[Report, Headers]:
     """Fetch a URL once and return (report, raw headers).
 
     The HSTS preload-list status is queried when the response advertises a
@@ -221,7 +227,8 @@ def _audit_one(url: str, *, timeout: float,
     the failure still surfaces as an INFO finding in each report.
     With ``no_tls=True`` (--no-tls) the TLS version/cipher probe is skipped
     entirely for fast header-only audits; the TLS check reports nothing
-    rather than penalizing the grade.
+    rather than penalizing the grade. ``tls_timeout`` (--tls-timeout) caps
+    each TLS handshake probe at that many seconds.
     """
     result = fetch(url, timeout=timeout, user_agent=user_agent)
     scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
@@ -233,7 +240,7 @@ def _audit_one(url: str, *, timeout: float,
         host = parts.hostname or ""
         port = parts.port or 443
         if host:
-            tls = probe_tls(host, port=port, timeout=min(timeout, 5.0))
+            tls = probe_tls(host, port=port, timeout=tls_timeout)
     def _secondary_warning(exc: FetchError, message: str) -> None:
         if not quiet_secondary:
             print(f"warning: {message}: {exc}", file=sys.stderr)
@@ -345,7 +352,8 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                 report, _ = _audit_one(args.url, timeout=args.timeout,
                                        user_agent=args.user_agent,
                                        quiet_secondary=True,
-                                       no_tls=args.no_tls)
+                                       no_tls=args.no_tls,
+                                       tls_timeout=args.tls_timeout)
             except FetchError as exc:
                 if prev is None:
                     print(f"error: {exc}", file=sys.stderr)
@@ -460,7 +468,8 @@ def run_compare(args: argparse.Namespace) -> int:
         try:
             report, _ = _audit_one(url, timeout=args.timeout,
                                    user_agent=args.user_agent,
-                                   no_tls=args.no_tls)
+                                   no_tls=args.no_tls,
+                                   tls_timeout=args.tls_timeout)
         except FetchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -500,6 +509,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.ignore_info and not (args.compare or args.diff_against):
         print("error: --ignore-info only applies with --compare or "
               "--diff-against.", file=sys.stderr)
+        return 2
+
+    if args.tls_timeout <= 0:
+        print(f"error: --tls-timeout must be positive (got {args.tls_timeout:g}s).",
+              file=sys.stderr)
+        return 2
+    if args.no_tls and args.tls_timeout != build_parser().get_default("tls_timeout"):
+        print("error: --tls-timeout cannot be combined with --no-tls (the TLS "
+              "probe is skipped, so there is nothing to time out).",
+              file=sys.stderr)
         return 2
 
     if args.bulk:
@@ -586,7 +605,8 @@ def main(argv: list[str] | None = None) -> int:
             report, raw_headers = _audit_one(args.url, timeout=args.timeout,
                                              user_agent=args.user_agent,
                                              sri=args.sri,
-                                             no_tls=args.no_tls)
+                                             no_tls=args.no_tls,
+                                             tls_timeout=args.tls_timeout)
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

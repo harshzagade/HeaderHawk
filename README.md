@@ -93,7 +93,7 @@ headerhawk example.com --history grades.jsonl
 headerhawk --history-report grades.jsonl
 ```
 
-Options: `--timeout SEC`, `--user-agent UA`, `--no-color`, `--no-tls`,
+Options: `--timeout SEC`, `--tls-timeout SEC`, `--user-agent UA`, `--no-color`, `--no-tls`,
 `-o/--output FILE`,
 `--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,

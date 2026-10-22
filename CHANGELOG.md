@@ -2,6 +2,11 @@
 
 ## Unreleased
 ### Added
+- `--tls-timeout SEC` for single-target, `--compare`, and `--watch` audits:
+  caps each TLS handshake probe at SEC seconds (default 5, replacing the
+  hard-coded cap) for slow or rate-limited servers; non-positive values fail
+  fast, and combining it with `--no-tls` (probe skipped) exits 2. Covered
+  by 8 new tests in `tests/test_tls_timeout.py`.
 - Per-directive `unsafe-inline` breakdown in `check_csp()`: the MED (-8)
   finding now names exactly which directives allow `'unsafe-inline'`
   (`script-src`, `style-src`, or both), and notes when it is inherited via
