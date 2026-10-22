@@ -147,6 +147,44 @@ def find_missing_crossorigin(html: str) -> list[Subresource]:
 
 
 @dataclass
+class MetaHttpEquiv:
+    """One ``<meta http-equiv="...">`` tag from the page head."""
+
+    name: str     # lowercased http-equiv value, e.g. "refresh"
+    content: str  # raw content attribute as written
+
+
+class _MetaHttpEquivParser(HTMLParser):
+    """Collect <meta http-equiv> tags."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tags: list[MetaHttpEquiv] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+        if tag != "meta":
+            return
+        attrs_map = {name.lower(): (value or "") for name, value in attrs}
+        http_equiv = attrs_map.get("http-equiv", "").strip()
+        if http_equiv:
+            self.tags.append(MetaHttpEquiv(
+                name=http_equiv.lower(),
+                content=attrs_map.get("content", "")))
+
+
+def find_meta_http_equiv(html: str) -> list[MetaHttpEquiv]:
+    """Return every ``<meta http-equiv="...">`` tag on the page.
+
+    The audit in ``checks.check_meta_http_equiv()`` uses these to note
+    security-relevant pragma directives and, crucially, which real response
+    headers a meta tag can and cannot replace.
+    """
+    parser = _MetaHttpEquivParser()
+    parser.feed(html)
+    return parser.tags
+
+
+@dataclass
 class HTMLFetchResult:
     url: str
     final_url: str

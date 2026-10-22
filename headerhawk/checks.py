@@ -1528,6 +1528,85 @@ def check_sri_crossorigin(html: str | None) -> list[Finding]:
     return findings
 
 
+def check_meta_http_equiv(html: str | None) -> list[Finding]:
+    """Flag security-relevant ``<meta http-equiv>`` tags (``--sri`` mode).
+
+    ``html`` is the page body fetched by ``sri.fetch_html()``, or None when
+    the audit runs without ``--sri`` (silently opts out). A ``http-equiv``
+    pragma only ever approximates a handful of real response headers — and
+    some pragmas (like ``set-cookie``) are ignored by every browser. This
+    check notes the security-relevant ones and states exactly which real
+    headers they can and cannot replace. All INFO: observations about
+    developer confusion, never graded.
+    """
+    if html is None:
+        return []
+    from .sri import find_meta_http_equiv
+    import re
+    tags = find_meta_http_equiv(html)
+    findings: list[Finding] = []
+    for tag in tags:
+        if tag.name == "content-security-policy":
+            findings.append(Finding(
+                check="Meta http-equiv", header="(page HTML)",
+                status="info", severity="INFO", score_delta=0,
+                summary="CSP is delivered via <meta http-equiv>, not a response header.",
+                detail=("A meta-delivered policy only covers the document "
+                        "that carries it, and browsers ignore the "
+                        "`frame-ancestors` and `sandbox` directives in it — "
+                        "a meta tag cannot fully replace a Content-Security-Policy "
+                        "response header. If the site also sends the real "
+                        "header, this tag is redundant."),
+                fix=("Serve the policy as a real Content-Security-Policy "
+                     "response header (and drop the meta tag) so every "
+                     "directive is enforced on every response."),
+            ))
+        elif tag.name == "refresh" and re.search(r";\s*url\s*=", tag.content,
+                                                  re.IGNORECASE):
+            findings.append(Finding(
+                check="Meta http-equiv", header="(page HTML)",
+                status="info", severity="INFO", score_delta=0,
+                summary=(f"Meta refresh redirect: {tag.content.strip()}"),
+                detail=("The page redirects via a <meta http-equiv=refresh> "
+                        "tag. That redirect happens client-side, so it is "
+                        "not part of the HTTP redirect-chain audit above — a "
+                        "meta tag cannot replace a real 3xx response, which "
+                        "browsers, crawlers, and security scanners all see."),
+                fix=("Redirect with an HTTP 3xx status from the server "
+                     "instead, so the redirect chain audit (and every client) "
+                     "can see and evaluate it."),
+            ))
+        elif tag.name == "x-ua-compatible":
+            findings.append(Finding(
+                check="Meta http-equiv", header="(page HTML)",
+                status="info", severity="INFO", score_delta=0,
+                summary="X-UA-Compatible meta tag is a legacy IE hint only.",
+                detail=("This pragma only selects Internet Explorer document "
+                        "modes. Modern browsers ignore it entirely, and it "
+                        "cannot set, replace, or emulate any security "
+                        "response header (HSTS, CSP, X-Frame-Options, ...). "
+                        "It is inert markup, not a control."),
+                fix=("Remove it unless the site still supports legacy IE; it "
+                     "does no security work either way."),
+            ))
+        elif tag.name == "set-cookie":
+            findings.append(Finding(
+                check="Meta http-equiv", header="(page HTML)",
+                status="info", severity="INFO", score_delta=0,
+                summary="<meta http-equiv=set-cookie> is ignored by browsers.",
+                detail=("The set-cookie pragma is non-conforming: no browser "
+                        "honors it, so no cookie is actually set — a meta tag "
+                        "cannot replace the Set-Cookie header, and cannot "
+                        "apply Secure, HttpOnly, or SameSite flags to "
+                        "anything. Anyone reading this markup would expect "
+                        "session cookies that do not exist."),
+                fix=("Set the cookie with a real Set-Cookie response header "
+                     "instead, with the appropriate Secure/HttpOnly/SameSite "
+                     "flags."),
+            ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -1578,6 +1657,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_sri(sri_html)
     findings += check_mixed_content(sri_html, scheme)
     findings += check_sri_crossorigin(sri_html)
+    findings += check_meta_http_equiv(sri_html)
     sri_seen = meta.get("sri_seen", 0)  # set by the --sri fetch path
 
     score = max(0, min(100, 100 + sum(f.score_delta for f in findings)))

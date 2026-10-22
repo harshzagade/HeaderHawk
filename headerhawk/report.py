@@ -120,6 +120,11 @@ def render_text(report: Report, color: bool = True,
         footer += (f" Audited Subresource Integrity on "
                    f"{report.sri_seen} external {sri_noun} "
                    f"({sri_issues} {sri_noun_issue} above).")
+        meta_notes = sum(1 for f in report.findings
+                         if f.check == "Meta http-equiv")
+        meta_noun = "note" if meta_notes == 1 else "notes"
+        footer += (f" Checked <meta http-equiv> tags for security-relevant "
+                   f"pragmas ({meta_notes} {meta_noun} above).")
     lines.append(paint(footer, "dim"))
     return "\n".join(lines).rstrip() + "\n"
 

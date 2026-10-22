@@ -2,6 +2,16 @@
 
 ## Unreleased
 ### Added
+- `<meta http-equiv>` fallback audit in `--sri` mode: the fetched page HTML
+  is scanned for security-relevant pragma directives (`content-security-policy`,
+  `refresh` redirects, `x-ua-compatible`, `set-cookie`), and each finding
+  states which real response headers the pragma can and cannot replace —
+  a meta CSP cannot enforce `frame-ancestors`/`sandbox`, meta refresh
+  redirects are invisible to the redirect-chain audit, `X-UA-Compatible`
+  replaces no security header, and `set-cookie` is ignored by every browser
+  (no cookie is actually set). All INFO, never graded; the text footer
+  notes the pragma check alongside the SRI audit. Covered by 13 new tests
+  in `tests/test_meta_http_equiv.py`.
 - `--tls-timeout SEC` for single-target, `--compare`, and `--watch` audits:
   caps each TLS handshake probe at SEC seconds (default 5, replacing the
   hard-coded cap) for slow or rate-limited servers; non-positive values fail
