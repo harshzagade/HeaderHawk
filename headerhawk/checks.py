@@ -202,8 +202,9 @@ def check_hsts_preload(headers: Headers, scheme: str,
     A ``preload`` directive in the HSTS header only expresses *intent*:
     browsers honor it after the domain is submitted at hstspreload.org and
     shipped in the preload list. Sending the directive without a list entry
-    is false confidence — the very first visit is still unprotected.
-
+    is false confidence — the very first visit is still unprotected. That
+    makes it a MED finding, not a LOW: the site believes it has preloading
+    and behaves accordingly, while the protection does not exist at all.
     ``preload`` is the list status queried from hstspreload.org
     (``"preloaded"``, ``"unknown"``, ...), None when the query was attempted
     but failed, or ``"unchecked"`` when the check did not run (offline or
@@ -233,14 +234,18 @@ def check_hsts_preload(headers: Headers, scheme: str,
         )]
     return [Finding(
         check="HSTS preload list", header=name, status="weak",
-        severity="LOW", score_delta=-2,
+        severity="MED", score_delta=-5,
         summary=(f"HSTS advertises preload, but hstspreload.org reports status "
                  f"{preload!r}: the domain is not actually submitted."),
-        detail=("The preload directive takes effect only after the domain is "
-                "submitted and accepted into the preload list; until then the "
-                "very first visit is still vulnerable to SSL stripping."),
-        fix=("Submit the domain at https://hstspreload.org (requires valid "
-             "HSTS with includeSubDomains on the apex domain)."),
+        detail=("False confidence: the preload token takes effect only after "
+                "the domain is submitted and accepted into the preload list. "
+                "Until then the very first visit is still vulnerable to SSL "
+                "stripping — the token alone buys zero protection, while the "
+                "site's operators may assume the protection is in place."),
+        fix=("Either remove the preload directive (keep plain HSTS, honestly "
+             "represented), or submit the domain at https://hstspreload.org "
+             "(requires valid HSTS with includeSubDomains on the apex "
+             "domain)."),
     )]
 
 

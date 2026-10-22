@@ -186,6 +186,16 @@
   `--fail-below` and `--output`; rejects combos with `--json`, `--raw`,
   `--only`, `--explain`, `--bulk`, `--compare`, and `--watch`.
 
+### Changed
+- HSTS preload false-confidence escalated from LOW (-2) to MED (-5): an
+  HSTS header advertising `preload` when hstspreload.org shows no list
+  entry is not minor hygiene — the site claims a protection that does not
+  exist while the first visit stays strippable. The finding's fix now names
+  both exits explicitly: remove the directive, or submit the domain.
+  Covered by the renamed `test_hsts_preload_unknown_is_med` in
+  `tests/test_checks.py`; README "Interpreting your grade" re-ordered
+  accordingly.
+
 ## 1.0.0 - 2026-10-11
 - Initial release: live + offline security-header auditing, A+..F grading,
   per-miss explanations with fix suggestions, text/JSON output, `--fail-below`

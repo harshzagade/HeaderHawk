@@ -260,14 +260,18 @@ def test_hsts_preload_preloaded_is_ok():
     assert findings[0].score_delta == 0
 
 
-def test_hsts_preload_unknown_is_low():
+def test_hsts_preload_unknown_is_med():
+    # A bare preload directive with no list entry is false confidence:
+    # the site claims preloading that does not exist. MED, not LOW.
     report = analyze(SECURE, scheme="https", meta={"hsts_preload": "unknown"})
     findings = _preload_findings(report)
     assert len(findings) == 1
-    assert findings[0].severity == "LOW"
-    assert findings[0].score_delta == -2
+    assert findings[0].severity == "MED"
+    assert findings[0].score_delta == -5
     assert "hstspreload.org" in findings[0].summary
-    assert report.score == 98
+    assert "remove the preload directive" in findings[0].fix.lower()
+    assert "submit the domain" in findings[0].fix.lower()
+    assert report.score == 95
 
 
 def test_hsts_preload_failed_query_is_info():

@@ -220,11 +220,13 @@ biggest penalties first. Work this list top-down:
    a redirect chain that ends on plain HTTP.
 6. **Quick hygiene wins (-5 / -4 / -3):** cookie `Secure` and `HttpOnly`
    flags, `SameSite` values, SRI hashes on external scripts/styles
-   (-4 each), a `Referrer-Policy`. These are one-line header changes.
-7. **Polish the LOWs (-2 each):** cert expiring within 30 days, HSTS
-   preload-list submission, SRI `crossorigin=` attributes, and
-   Permissions-Policy typos / malformed directives (browsers ignore them,
-   so the fix is free points). Small effort, last few points.
+   (-4 each), a `Referrer-Policy`, and a bare HSTS `preload` directive
+   with no preload-list entry (-5, MED — false confidence: remove the
+   token or actually submit the domain). These are one-line header changes.
+7. **Polish the LOWs (-2 each):** cert expiring within 30 days, SRI
+   `crossorigin=` attributes, and Permissions-Policy typos / malformed
+   directives (browsers ignore them, so the fix is free points).
+   Small effort, last few points.
 
 INFO and OK findings cost nothing — they are hardening notes and
 confirmations, not score. If the report is noisy, run with
