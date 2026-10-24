@@ -1166,6 +1166,69 @@ def check_cookie_prefixes(headers: Headers) -> list[Finding]:
     return findings
 
 
+_SESSION_COOKIE_TOKENS = frozenset({
+    "session", "sess", "sessid", "sessionid", "jsessionid", "phpsessid",
+    "phpsess", "aspsession", "aspsessid", "login", "signin", "auth",
+    "authn", "token", "authtoken", "accesstoken", "refreshtoken", "idtoken",
+    "sid", "remember", "rememberme", "jwt",
+})
+
+
+def _is_sessionish_cookie(name: str) -> bool:
+    """True when the cookie name smells like a session/auth credential.
+
+    Matches the whole name (after stripping a leading ``_``, so ``_session``
+    counts) or any token of the name split on ``-``/``_``/``.`` — e.g.
+    ``app_session`` or ``auth.token``. Matching is case-insensitive.
+    """
+    lowered = name.lower().lstrip("_")
+    if lowered in _SESSION_COOKIE_TOKENS:
+        return True
+    return any(tok in _SESSION_COOKIE_TOKENS
+               for tok in re.split(r"[-_.]+", lowered))
+
+
+def check_cookie_prefix_adoption(headers: Headers, scheme: str) -> list[Finding]:
+    """Nudge session-ish cookies toward `__Host-`/`__Secure-` prefixes (INFO).
+
+    Cookie-name prefixes (RFC 6265bis) are the only way a server can make a
+    cookie's security properties tamper-evident: ``__Host-`` binds the cookie
+    to one origin (requires ``Secure`` + ``Path=/`` + no ``Domain``), and
+    ``__Secure-`` at least demands ``Secure``. When a cookie whose name looks
+    session/auth-related is set on HTTPS without either prefix, this emits an
+    INFO finding — a defense-in-depth note with no score penalty. Plain-HTTP
+    targets are out of scope (``Secure`` cannot be set there at all), and
+    already-prefixed cookies are handled by ``check_cookie_prefixes()``.
+    """
+    if scheme != "https":
+        return []
+    findings: list[Finding] = []
+    for raw in all_values(headers, "set-cookie"):
+        name, _attrs = _parse_set_cookie(raw)
+        lowered = name.lower()
+        if lowered.startswith("__host-") or lowered.startswith("__secure-"):
+            continue
+        if not _is_sessionish_cookie(name):
+            continue
+        findings.append(Finding(
+            check="Cookie name prefixes", header="Set-Cookie",
+            status="info", severity="INFO", score_delta=0,
+            summary=(f"Session cookie {name!r} does not use a __Host- or "
+                     "__Secure- name prefix."),
+            detail=("Cookie-name prefixes (RFC 6265bis) make a cookie's "
+                    "security guarantees tamper-evident: __Host- binds the "
+                    "cookie to one origin (Secure + Path=/, no Domain) and "
+                    "__Secure- at least demands Secure. Without a prefix, "
+                    "nothing stops a network attacker (or a vulnerable "
+                    "subdomain cookie jar) from overwriting the session "
+                    "cookie's flags."),
+            fix=(f"Rename the cookie to __Host-{name} and set it as: "
+                 f"Set-Cookie: __Host-{name}=...; Secure; Path=/ "
+                 "(no Domain attribute)"),
+        ))
+    return findings
+
+
 def check_cookies(headers: Headers) -> list[Finding]:
     """Audit Set-Cookie flags: Secure, HttpOnly, SameSite.
 
@@ -1650,6 +1713,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_disclosure(headers)
     findings += check_cookies(headers)
     findings += check_cookie_prefixes(headers)
+    findings += check_cookie_prefix_adoption(headers, scheme)
     findings += check_conflicting_duplicates(headers)
     findings += check_redirect_chain(meta.get("redirect_chain", []))
     findings += check_tls(meta.get("tls", "unchecked"))

@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Cookie-prefix adoption note: on HTTPS targets, session-ish cookies (name
+  matches session/auth/token/login/remember patterns, split on `-`/`_`/.`)
+  that do not use a `__Host-`/`__Secure-` prefix now get an INFO finding —
+  a defense-in-depth nudge with no score penalty. Already-prefixed cookies
+  keep their existing validation; plain-HTTP targets and non-session cookies
+  stay silent. Covered by 8 new tests in
+  `tests/test_cookie_prefix_adoption.py`.
 - `<meta http-equiv>` fallback audit in `--sri` mode: the fetched page HTML
   is scanned for security-relevant pragma directives (`content-security-policy`,
   `refresh` redirects, `x-ua-compatible`, `set-cookie`), and each finding
