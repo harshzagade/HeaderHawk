@@ -25,6 +25,8 @@ class BulkResult:
     score: int = -1
     high: int = 0
     med: int = 0
+    low: int = 0
+    info: int = 0
     elapsed_ms: int = 0
     error: str = ""
 
@@ -37,6 +39,8 @@ class BulkResult:
             "score": self.score,
             "high_findings": self.high,
             "medium_findings": self.med,
+            "low_findings": self.low,
+            "info_findings": self.info,
             "elapsed_ms": self.elapsed_ms,
             "error": self.error,
         }
@@ -85,6 +89,8 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str) -> list[Bulk
             score=report.score,
             high=sum(1 for f in report.findings if f.severity == "HIGH"),
             med=sum(1 for f in report.findings if f.severity == "MED"),
+            low=sum(1 for f in report.findings if f.severity == "LOW"),
+            info=sum(1 for f in report.findings if f.severity == "INFO"),
             elapsed_ms=result.elapsed_ms,
         ))
     return rows

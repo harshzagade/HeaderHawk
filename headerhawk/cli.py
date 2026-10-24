@@ -16,7 +16,8 @@ from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, fetch_security_txt,
                    preload_status)
 from .history import append_run, read_history
 from .offline import load_headers
-from .report import (diff_reports, grade_index, render_bulk_json,
+from .report import (_SEVERITY_ORDER, diff_reports, grade_index,
+                      render_bulk_json,
                       render_bulk_table, render_compare, render_compare_json,
                       render_explain, render_history_report, render_json,
                       render_summary_line, render_text, report_from_dict)
@@ -53,6 +54,29 @@ def _parse_explain(value: str | None) -> str | None:
             f"unknown severity {severity!r} in --explain "
             f"(use one of {', '.join(_VALID_SEVERITIES)}).")
     return severity
+
+
+def _parse_fail_on(value: str | None) -> int | None:
+    """Parse --fail-on into a severity rank (lower = more severe).
+
+    "At or above" means rank <= the threshold rank: --fail-on MED fails on
+    HIGH and MED findings. Raises ValueError on unknown input.
+    """
+    if value is None:
+        return None
+    rank = _SEVERITY_ORDER.get(value.strip().upper())
+    if rank is None:
+        raise ValueError(
+            f"unknown severity {value!r} in --fail-on "
+            f"(use one of {', '.join(_VALID_SEVERITIES)}).")
+    return rank
+
+
+def _findings_at_or_above(report: Report, max_rank: int) -> list:
+    """Return the report's findings whose severity is at or above the rank."""
+    return [f for f in report.findings
+            if _SEVERITY_ORDER.get(f.severity, 99) <= max_rank]
+
 
 
 def _terminal_safe(text: str) -> str:
@@ -116,6 +140,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fail-below", metavar="GRADE",
                         help="Exit 1 unless the grade is at least GRADE "
                              "(e.g. --fail-below B for CI gates).")
+    parser.add_argument("--fail-on", metavar="SEVERITY",
+                        help="Exit 1 when any finding at or above SEVERITY "
+                             "exists (e.g. --fail-on MED for CI gates). "
+                             "Independent of --fail-below: a passing grade "
+                             "can still hide a HIGH finding.")
     parser.add_argument("--raw", action="store_true",
                         help="Print the raw response headers before the report.")
     parser.add_argument("--bulk", metavar="FILE",
@@ -323,6 +352,14 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                   f"(use one of A+ A B C D E F).", file=sys.stderr)
             return 2
 
+    max_fail_on_rank = None
+    if args.fail_on:
+        try:
+            max_fail_on_rank = _parse_fail_on(args.fail_on)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
     log_fh = None
     if args.watch_log:
         try:
@@ -394,6 +431,14 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                         f"Grade {report.grade} is below the required "
                         f"{args.fail_below.upper()}.\n")
                     return 1
+                if max_fail_on_rank is not None:
+                    offending = _findings_at_or_above(report, max_fail_on_rank)
+                    if offending:
+                        sys.stderr.write(
+                            f"Finding gate failed: {len(offending)} "
+                            f"finding(s) at or above "
+                            f"{args.fail_on.upper()} severity.\n")
+                        return 1
             sleep(interval)
     except KeyboardInterrupt:
         elapsed = time.monotonic() - started
@@ -458,6 +503,33 @@ def run_bulk(args: argparse.Namespace) -> int:
             if not args.json:
                 sys.stderr.write("Bulk gate failed: " + ", ".join(reasons) + ".\n")
             return 1
+    if args.fail_on:
+        try:
+            max_rank = _parse_fail_on(args.fail_on)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        def _row_worst_rank(row) -> int:
+            ranks = []
+            if row.high:
+                ranks.append(_SEVERITY_ORDER["HIGH"])
+            if row.med:
+                ranks.append(_SEVERITY_ORDER["MED"])
+            if row.low:
+                ranks.append(_SEVERITY_ORDER["LOW"])
+            if row.info:
+                ranks.append(_SEVERITY_ORDER["INFO"])
+            return min(ranks, default=99)
+
+        bad = [r for r in rows if not r.error and _row_worst_rank(r) <= max_rank]
+        if bad:
+            if not args.json:
+                sys.stderr.write(
+                    f"Finding gate failed: {len(bad)} target(s) with "
+                    f"finding(s) at or above {args.fail_on.upper()} "
+                    "severity.\n")
+            return 1
     return 0
 
 
@@ -500,6 +572,19 @@ def run_compare(args: argparse.Namespace) -> int:
                     f"Grade {reports[1].grade} (URL_B) is below the required "
                     f"{args.fail_below.upper()}.\n")
             return 1
+    if args.fail_on:
+        try:
+            max_rank = _parse_fail_on(args.fail_on)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        offending = _findings_at_or_above(reports[1], max_rank)
+        if offending:
+            if not args.json:
+                sys.stderr.write(
+                    f"Finding gate failed: {len(offending)} finding(s) at or "
+                    f"above {args.fail_on.upper()} severity on URL_B.\n")
+            return 1
     return 0
 
 
@@ -535,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
         conflicting = (args.url, args.headers, args.bulk, args.compare,
                        args.watch, args.diff_against, args.sri, args.history,
                        args.raw, args.only, args.explain, args.summary_line,
-                       args.json, args.output, args.fail_below)
+                       args.json, args.output, args.fail_below, args.fail_on)
         if any(conflicting):
             print("error: --history-report is a report-only mode; it cannot "
                   "be combined with any other mode or output option.",
@@ -696,6 +781,19 @@ def main(argv: list[str] | None = None) -> int:
             if not args.json:
                 sys.stderr.write(
                     f"Grade {report.grade} is below the required {args.fail_below.upper()}.\n")
+            return 1
+    if args.fail_on:
+        try:
+            max_rank = _parse_fail_on(args.fail_on)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        offending = _findings_at_or_above(report, max_rank)
+        if offending:
+            if not args.json:
+                sys.stderr.write(
+                    f"Finding gate failed: {len(offending)} finding(s) at or "
+                    f"above {args.fail_on.upper()} severity.\n")
             return 1
     return 0
 

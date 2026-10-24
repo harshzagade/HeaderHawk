@@ -9,6 +9,13 @@
   keep their existing validation; plain-HTTP targets and non-session cookies
   stay silent. Covered by 8 new tests in
   `tests/test_cookie_prefix_adoption.py`.
+- `--fail-on SEVERITY`: a second CI gate that exits 1 when any finding at or
+  above the given severity exists — independent of `--fail-below`, so a
+  passing grade can still fail the pipeline on a hidden HIGH. Applies to
+  single-target, `--bulk` (any target), `--compare` (URL_B), `--diff-against`
+  (the fresh audit), and `--watch` (each re-audit); invalid severities fail
+  fast with exit 2, and `--json` mode stays quiet on stdout like `--fail-below`.
+  Covered by 14 new tests in `tests/test_fail_on.py`.
 - `<meta http-equiv>` fallback audit in `--sri` mode: the fetched page HTML
   is scanned for security-relevant pragma directives (`content-security-policy`,
   `refresh` redirects, `x-ua-compatible`, `set-cookie`), and each finding

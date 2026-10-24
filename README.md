@@ -95,7 +95,8 @@ headerhawk --history-report grades.jsonl
 
 Options: `--timeout SEC`, `--tls-timeout SEC`, `--user-agent UA`, `--no-color`, `--no-tls`,
 `-o/--output FILE`,
-`--fail-below GRADE`, `--only SEV`, `--explain SEV`, `--summary-line`,
+`--fail-below GRADE`, `--fail-on SEVERITY`, `--only SEV`, `--explain SEV`,
+`--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
 `--compare URL_A URL_B`, `--diff-against FILE`,
 `--watch SEC`, `--watch-log FILE`, `--version`. Run
@@ -232,7 +233,8 @@ biggest penalties first. Work this list top-down:
 INFO and OK findings cost nothing — they are hardening notes and
 confirmations, not score. If the report is noisy, run with
 `--only HIGH,MED` or `--explain HIGH` to see only what moves the grade,
-`--fail-below B` in CI to gate deploys, and `--watch` to catch regressions.
+`--fail-below B` in CI to gate deploys, `--fail-on HIGH` when a passing grade
+must still not hide a severe finding, and `--watch` to catch regressions.
 
 ## Scope notes
 
