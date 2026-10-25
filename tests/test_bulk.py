@@ -7,7 +7,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from headerhawk.bulk import BulkResult, audit_targets, read_targets
+from headerhawk.bulk import (BulkResult, audit_targets, bulk_report_filename,
+                             read_targets)
 from headerhawk.cli import main
 from headerhawk.report import render_bulk_json, render_bulk_table
 
@@ -133,6 +134,58 @@ def test_render_bulk_table_truncates_long_urls():
     out = render_bulk_table(rows, color=False)
     assert long_url not in out  # truncated, not wrapped
     assert "A" in out and "95" in out
+
+
+def test_bulk_report_filename_sanitizes_and_dedupes():
+    used: set[str] = set()
+    assert bulk_report_filename("https://example.com/a/b", "txt", used) == "example.com_a_b.txt"
+    assert bulk_report_filename("https://example.com/", "txt", used) == "example.com.txt"
+    assert bulk_report_filename("https://example.com/a/b?x=1", "txt", used) == "example.com_a_b-2.txt"
+    assert bulk_report_filename("https://exa mple.com/weird path!", "txt", used) == "exa_mple.com_weird_path.txt"
+
+
+def test_audit_targets_rows_carry_full_reports(server):
+    rows = audit_targets([f"{server}/secure"], timeout=5.0,
+                         user_agent="HeaderHawk-test")
+    assert rows[0].report is not None
+    assert rows[0].report.grade == rows[0].grade
+    assert rows[0].report.score == rows[0].score
+
+
+def test_bulk_output_writes_per_target_files(server, tmp_path):
+    out_dir = tmp_path / "reports"
+    code = main(["--bulk", _targets_file(tmp_path, server), "--no-color",
+                 "--bulk-output", str(out_dir)])
+    assert code == 0
+    files = sorted(p.name for p in out_dir.iterdir())
+    assert len(files) == 2  # the unreachable row gets no file
+    secure = [p for p in out_dir.iterdir() if "secure" in p.name][0]
+    assert "Strict-Transport-Security" in secure.read_text() or "grade" in secure.read_text().lower()
+
+
+def test_bulk_output_json_files(server, tmp_path):
+    out_dir = tmp_path / "reports-json"
+    code = main(["--bulk", _targets_file(tmp_path, server), "--json",
+                 "--bulk-output", str(out_dir)])
+    assert code == 0
+    files = list(out_dir.iterdir())
+    assert len(files) == 2
+    assert all(p.suffix == ".json" for p in files)
+    payload = json.loads(files[0].read_text())
+    assert "grade" in payload and "findings" in payload
+
+
+def test_bulk_output_without_bulk_is_error(capsys):
+    assert main(["--bulk-output", "/tmp/x"]) == 2
+    assert "--bulk-output only applies with --bulk" in capsys.readouterr().err
+
+
+def test_bulk_output_unwritable_dir_is_error(server, tmp_path, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    code = main(["--bulk", _targets_file(tmp_path, server),
+                 "--bulk-output", str(blocker / "sub")])
+    assert code == 2
 
 
 def test_render_bulk_json_all_errors():

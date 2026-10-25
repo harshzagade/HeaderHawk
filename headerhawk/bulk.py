@@ -7,11 +7,16 @@ become ERROR rows instead of aborting the run.
 
 from __future__ import annotations
 
+import re
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .checks import analyze
 from .fetch import FetchError, fetch
+
+if TYPE_CHECKING:
+    from .checks import Report
 
 
 @dataclass
@@ -29,6 +34,10 @@ class BulkResult:
     info: int = 0
     elapsed_ms: int = 0
     error: str = ""
+    # Full per-target report (None for error rows). Kept out of to_dict()
+    # so the bulk JSON table stays a compact summary; --bulk-output writes
+    # these reports to per-target files.
+    report: Report | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         return {
@@ -92,5 +101,32 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str) -> list[Bulk
             low=sum(1 for f in report.findings if f.severity == "LOW"),
             info=sum(1 for f in report.findings if f.severity == "INFO"),
             elapsed_ms=result.elapsed_ms,
+            report=report,
         ))
     return rows
+
+
+def bulk_report_filename(url: str, ext: str, used: set[str]) -> str:
+    """Derive a filesystem-safe per-target report filename from *url*.
+
+    Host + path with every run of unsafe characters collapsed to one
+    underscore (``https://example.com/a/b`` -> ``example.com_a_b.txt``).
+    The query string is ignored, so two targets that sanitize identically
+    get ``-2``, ``-3`` suffixes; *used* tracks names already handed out
+    and gains the returned name.
+    """
+    parsed = urllib.parse.urlsplit(url if "://" in url else "https://" + url)
+    host = parsed.hostname or "target"
+    path = parsed.path.strip("/")
+    base = host + ("_" + path if path else "")
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._") or "target"
+    name = f"{base}.{ext}"
+    if name not in used:
+        used.add(name)
+        return name
+    suffix = 2
+    while f"{base}-{suffix}.{ext}" in used:
+        suffix += 1
+    name = f"{base}-{suffix}.{ext}"
+    used.add(name)
+    return name

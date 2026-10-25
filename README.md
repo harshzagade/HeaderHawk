@@ -64,6 +64,11 @@ headerhawk example.com -o report.txt
 headerhawk --bulk targets.txt
 headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 
+# Bulk mode with per-target reports: the summary table still prints, and each
+# audited target also gets its full report as a file in reports/ (named from
+# its host and path; JSON files with --json). Unreachable targets get no file.
+headerhawk --bulk targets.txt --bulk-output reports/
+
 # Compare two targets side by side (before/after hardening checks):
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
@@ -98,6 +103,7 @@ Options: `--timeout SEC`, `--tls-timeout SEC`, `--user-agent UA`, `--no-color`, 
 `--fail-below GRADE`, `--fail-on SEVERITY`, `--only SEV`, `--explain SEV`,
 `--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
+`--bulk-output DIR`,
 `--compare URL_A URL_B`, `--diff-against FILE`,
 `--watch SEC`, `--watch-log FILE`, `--version`. Run
 `headerhawk --help` for the full list.

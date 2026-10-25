@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- `--bulk-output DIR`: bulk mode also writes each audited target's full
+  report to a file in DIR (named from the target's host and path, with
+  `-2`/`-3` suffixes on collisions; text files, or JSON with `--json`).
+  Unreachable targets get no file and are counted in a stderr note; the
+  summary table still prints (or goes to `--output`) as before. The
+  directory is created when missing, and write failures exit 2. Covered
+  by 6 new tests in `tests/test_bulk.py`.
 - Cookie-prefix adoption note: on HTTPS targets, session-ish cookies (name
   matches session/auth/token/login/remember patterns, split on `-`/`_`/.`)
   that do not use a `__Host-`/`__Secure-` prefix now get an INFO finding —

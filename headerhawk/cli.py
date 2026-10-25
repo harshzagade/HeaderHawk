@@ -5,12 +5,13 @@ from __future__ import annotations
 import argparse
 import datetime
 import ipaddress
+import os
 import sys
 import time
 import urllib.parse
 
 from . import __version__
-from .bulk import audit_targets, read_targets
+from .bulk import audit_targets, bulk_report_filename, read_targets
 from .checks import Headers, Report, analyze, get
 from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, fetch_security_txt,
                    preload_status)
@@ -150,6 +151,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bulk", metavar="FILE",
                         help="Bulk mode: read target URLs from FILE (one per line) "
                              "and print a summary grade table.")
+    parser.add_argument("--bulk-output", metavar="DIR",
+                        help="Bulk mode only: also write each target's full "
+                             "report to DIR (one file per target, named from "
+                             "its host and path; text files, or JSON with "
+                             "--json). Unreachable targets get no file.")
     parser.add_argument("--compare", nargs=2, metavar=("URL_A", "URL_B"),
                         help="Compare two targets side by side: fetch URL_A and "
                              "URL_B, and show what changed (regressed, new, "
@@ -480,6 +486,38 @@ def run_bulk(args: argparse.Namespace) -> int:
     color = not args.no_color and sys.stdout.isatty()
     output = render_bulk_json(rows) if args.json else render_bulk_table(rows, color=color)
 
+    if args.bulk_output:
+        try:
+            os.makedirs(args.bulk_output, exist_ok=True)
+        except OSError as exc:
+            print(f"error: cannot create bulk output dir "
+                  f"{args.bulk_output!r}: {exc}", file=sys.stderr)
+            return 2
+        used: set[str] = set()
+        written = 0
+        for row in rows:
+            if row.error or row.report is None:
+                continue
+            ext = "json" if args.json else "txt"
+            name = bulk_report_filename(row.url, ext, used)
+            content = (render_json(row.report) if args.json
+                       else render_text(row.report, color=False))
+            try:
+                with open(os.path.join(args.bulk_output, name), "w",
+                          encoding="utf-8") as fh:
+                    fh.write(content)
+            except OSError as exc:
+                print(f"error: cannot write bulk report {name!r}: {exc}",
+                      file=sys.stderr)
+                return 2
+            written += 1
+        skipped = sum(1 for r in rows if r.error)
+        sys.stderr.write(
+            f"Wrote {written} per-target report(s) to {args.bulk_output!r}")
+        if skipped:
+            sys.stderr.write(f" ({skipped} unreachable target(s) skipped)")
+        sys.stderr.write(".\n")
+
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(output)
@@ -606,6 +644,11 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
+    if args.bulk_output and not args.bulk:
+        print("error: --bulk-output only applies with --bulk.",
+              file=sys.stderr)
+        return 2
+
     if args.bulk:
         if args.url or args.headers or args.compare or args.explain \
                 or args.summary_line or args.sri or args.diff_against \
@@ -620,7 +663,8 @@ def main(argv: list[str] | None = None) -> int:
         conflicting = (args.url, args.headers, args.bulk, args.compare,
                        args.watch, args.diff_against, args.sri, args.history,
                        args.raw, args.only, args.explain, args.summary_line,
-                       args.json, args.output, args.fail_below, args.fail_on)
+                       args.json, args.output, args.fail_below, args.fail_on,
+                       args.bulk_output)
         if any(conflicting):
             print("error: --history-report is a report-only mode; it cannot "
                   "be combined with any other mode or output option.",
