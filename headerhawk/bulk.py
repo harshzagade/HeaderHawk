@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from .checks import analyze
 from .fetch import FetchError, fetch
+from .sri import count_external_resources, fetch_html
 
 if TYPE_CHECKING:
     from .checks import Report
@@ -71,8 +72,15 @@ def read_targets(path: str) -> list[str]:
     return targets
 
 
-def audit_targets(urls: list[str], timeout: float, user_agent: str) -> list[BulkResult]:
-    """Fetch and analyze each URL. Unreachable targets become error rows."""
+def audit_targets(urls: list[str], timeout: float, user_agent: str,
+                  sri: bool = False) -> list[BulkResult]:
+    """Fetch and analyze each URL. Unreachable targets become error rows.
+
+    With ``sri=True`` each reachable target also gets one bounded HTML
+    fetch for the Subresource Integrity audit (the same check single-URL
+    ``--sri`` runs); a failed HTML fetch fails open for that target alone
+    — the header audit still runs, just without SRI findings.
+    """
     rows: list[BulkResult] = []
     for url in urls:
         try:
@@ -81,6 +89,15 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str) -> list[Bulk
             rows.append(BulkResult(url=url, error=str(exc)))
             continue
         scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
+        sri_html: str | None = None
+        sri_seen = 0
+        if sri:
+            try:
+                page = fetch_html(url, timeout=timeout, user_agent=user_agent)
+                sri_html = page.html
+                sri_seen = count_external_resources(sri_html)
+            except FetchError:
+                pass  # fail open per target: header-only audit, no SRI
         meta = {
             "url": url,
             "final_url": result.final_url,
@@ -88,6 +105,8 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str) -> list[Bulk
             "redirects": result.redirects,
             "elapsed_ms": result.elapsed_ms,
             "redirect_chain": result.chain,
+            "sri_html": sri_html,
+            "sri_seen": sri_seen,
         }
         report = analyze(result.headers, scheme=scheme, meta=meta)
         rows.append(BulkResult(

@@ -69,6 +69,10 @@ headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 # its host and path; JSON files with --json). Unreachable targets get no file.
 headerhawk --bulk targets.txt --bulk-output reports/
 
+# Bulk mode with an SRI audit per target: the same page-HTML check as --sri,
+# run once per reachable target (failed HTML fetches fail open per target)
+headerhawk --bulk targets.txt --sri
+
 # Compare two targets side by side (before/after hardening checks):
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
@@ -188,7 +192,7 @@ documentation-reserved domain):
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
 | TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH), and certificate expiry — expired certs (HIGH), certs expiring within 30 days (LOW). Skipped for offline, bulk, and plain-HTTP targets; `--no-tls` skips it on demand |
-| Subresource Integrity | `--sri` mode (live single-URL only): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
+| Subresource Integrity | `--sri` mode (live single-URL and `--bulk` modes): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. In bulk mode one bounded HTML fetch runs per reachable target; a failed fetch fails open for that target (header-only audit, no SRI findings). SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
 | SRI `crossorigin` check | `--sri` mode: flags SRI-pinned external resources whose tag lacks `crossorigin=` — LOW (-2) each. Without CORS the browser cannot verify the hash, so the `integrity=` attribute is silently ignored and a tampered CDN copy loads anyway. Same-origin loads are out of scope |
 | Mixed content | `--sri` mode on HTTPS targets: flags `http://` scripts, stylesheets, and images — HIGH (-8) each. Scripts/styles are *active* mixed content (browsers block them); images are *passive* (kill the padlock). Protocol-relative URLs are not mixed content; plain-HTTP pages are out of scope |
 | Meta http-equiv fallback | `--sri` mode: flags security-relevant `<meta http-equiv>` pragmas — `Content-Security-Policy` via meta (INFO: `frame-ancestors`/`sandbox` ignored, cannot fully replace the header), `refresh` redirects (INFO: invisible to the HTTP redirect-chain audit), `X-UA-Compatible` (INFO: legacy IE hint, replaces no security header), `set-cookie` (INFO: ignored by every browser — no cookie is actually set). All INFO, never graded |

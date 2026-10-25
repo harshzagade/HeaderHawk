@@ -49,6 +49,38 @@ def server():
     httpd.shutdown()
 
 
+class _SriHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/plain":
+            body = b"not html"
+            content_type = "text/plain"
+        else:
+            body = (b"<html><head>"
+                    b'<script src="https://cdn.example.com/app.js"></script>'
+                    b'<link rel="stylesheet" '
+                    b'href="https://cdn.example.com/style.css" '
+                    b'integrity="sha384-abc" crossorigin="anonymous">'
+                    b"</head><body>hi</body></html>")
+            content_type = "text/html; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def sri_server():
+    os.environ["no_proxy"] = os.environ.get("no_proxy", "") + ",127.0.0.1,localhost"
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _SriHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+
+
 def _targets_file(tmp_path, server):
     path = tmp_path / "targets.txt"
     path.write_text(
@@ -186,6 +218,44 @@ def test_bulk_output_unwritable_dir_is_error(server, tmp_path, capsys):
     code = main(["--bulk", _targets_file(tmp_path, server),
                  "--bulk-output", str(blocker / "sub")])
     assert code == 2
+
+
+def test_bulk_sri_flags_unprotected_script(sri_server):
+    rows = audit_targets([sri_server], timeout=5.0,
+                         user_agent="HeaderHawk-test", sri=True)
+    assert not rows[0].error
+    assert rows[0].report is not None
+    assert rows[0].report.sri_seen == 2
+    sri_findings = [f for f in rows[0].report.findings
+                    if f.check == "Subresource Integrity"]
+    assert any(f.severity == "MED" and "app.js" in f.summary
+               for f in sri_findings)
+
+
+def test_bulk_without_sri_has_no_sri_findings(sri_server):
+    rows = audit_targets([sri_server], timeout=5.0,
+                         user_agent="HeaderHawk-test")
+    assert rows[0].report is not None
+    assert rows[0].report.sri_seen == 0
+    assert not [f for f in rows[0].report.findings
+                if f.check == "Subresource Integrity"]
+
+
+def test_bulk_sri_probe_failure_fails_open(sri_server):
+    # text/plain page: header audit runs, HTML fetch fails, no SRI findings,
+    # and the target is NOT an error row.
+    rows = audit_targets([f"{sri_server}/plain"], timeout=5.0,
+                         user_agent="HeaderHawk-test", sri=True)
+    assert not rows[0].error and rows[0].grade
+    assert not [f for f in rows[0].report.findings
+                if f.check == "Subresource Integrity"]
+
+
+def test_bulk_sri_cli_accepted(sri_server, tmp_path, capsys):
+    path = tmp_path / "targets.txt"
+    path.write_text(f"{sri_server}\n")
+    assert main(["--bulk", str(path), "--sri", "--no-color"]) == 0
+    assert "bulk audit (1 target)" in capsys.readouterr().out
 
 
 def test_render_bulk_json_all_errors():

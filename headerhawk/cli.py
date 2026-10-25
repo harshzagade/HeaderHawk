@@ -194,8 +194,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Subresource Integrity audit: fetch the page HTML "
                              "and flag external scripts/stylesheets loading "
                              "without an integrity= hash (MED each). Live "
-                             "single-URL mode only; cannot be combined with "
-                             "--headers, --bulk, --watch, or --compare.")
+                             "single-URL and --bulk modes (one bounded HTML "
+                             "fetch per bulk target; a failed fetch fails "
+                             "open for that target); cannot be combined with "
+                             "--headers, --watch, or --compare.")
     parser.add_argument("--history", metavar="FILE",
                         help="Grade history: append (timestamp, url, grade, "
                              "score) to FILE after this audit, for tracking "
@@ -482,7 +484,8 @@ def run_bulk(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    rows = audit_targets(targets, timeout=args.timeout, user_agent=args.user_agent)
+    rows = audit_targets(targets, timeout=args.timeout, user_agent=args.user_agent,
+                         sri=args.sri)
     color = not args.no_color and sys.stdout.isatty()
     output = render_bulk_json(rows) if args.json else render_bulk_table(rows, color=color)
 
@@ -651,10 +654,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk:
         if args.url or args.headers or args.compare or args.explain \
-                or args.summary_line or args.sri or args.diff_against \
+                or args.summary_line or args.diff_against \
                 or args.history:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, --explain, --summary-line, --sri, "
+                  "--compare, --explain, --summary-line, "
                   "--diff-against, or --history.", file=sys.stderr)
             return 2
         return run_bulk(args)

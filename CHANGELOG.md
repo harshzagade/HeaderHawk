@@ -9,6 +9,12 @@
   summary table still prints (or goes to `--output`) as before. The
   directory is created when missing, and write failures exit 2. Covered
   by 6 new tests in `tests/test_bulk.py`.
+- `--sri` in bulk mode: `--bulk` now accepts `--sri`, running one bounded
+  HTML fetch per reachable target for the Subresource Integrity audit
+  (plus the mixed-content, SRI-crossorigin, and meta-http-equiv checks
+  that ride on the fetched HTML). A failed HTML fetch fails open for
+  that target alone — the header audit still runs, just without SRI
+  findings. Covered by 4 new tests in `tests/test_bulk.py`.
 - Cookie-prefix adoption note: on HTTPS targets, session-ish cookies (name
   matches session/auth/token/login/remember patterns, split on `-`/`_`/.`)
   that do not use a `__Host-`/`__Secure-` prefix now get an INFO finding —
