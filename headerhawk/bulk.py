@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from .checks import analyze
 from .fetch import FetchError, fetch
 from .sri import count_external_resources, fetch_html
+from .tls import probe_tls
 
 if TYPE_CHECKING:
     from .checks import Report
@@ -35,6 +36,9 @@ class BulkResult:
     info: int = 0
     elapsed_ms: int = 0
     error: str = ""
+    # Negotiated TLS version from the --bulk-tls probe ("" when the probe
+    # did not run, the target is plain HTTP, or the probe failed).
+    tls_version: str = ""
     # Full per-target report (None for error rows). Kept out of to_dict()
     # so the bulk JSON table stays a compact summary; --bulk-output writes
     # these reports to per-target files.
@@ -53,6 +57,7 @@ class BulkResult:
             "info_findings": self.info,
             "elapsed_ms": self.elapsed_ms,
             "error": self.error,
+            "tls_version": self.tls_version,
         }
 
 
@@ -73,13 +78,19 @@ def read_targets(path: str) -> list[str]:
 
 
 def audit_targets(urls: list[str], timeout: float, user_agent: str,
-                  sri: bool = False) -> list[BulkResult]:
+                  sri: bool = False, tls: bool = False,
+                  tls_timeout: float = 5.0) -> list[BulkResult]:
     """Fetch and analyze each URL. Unreachable targets become error rows.
 
     With ``sri=True`` each reachable target also gets one bounded HTML
     fetch for the Subresource Integrity audit (the same check single-URL
     ``--sri`` runs); a failed HTML fetch fails open for that target alone
     — the header audit still runs, just without SRI findings.
+    With ``tls=True`` each reachable HTTPS target also gets the TLS
+    version/cipher probe (the same probe single-URL audits run); the
+    negotiated version lands in the row's ``tls_version`` for the bulk
+    table. A failed probe fails open — display only, never a finding and
+    never a grade penalty — and plain-HTTP targets are not probed.
     """
     rows: list[BulkResult] = []
     for url in urls:
@@ -89,6 +100,17 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str,
             rows.append(BulkResult(url=url, error=str(exc)))
             continue
         scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
+        tls_version = ""
+        if tls and scheme == "https":
+            parts = urllib.parse.urlsplit(result.final_url)
+            if parts.hostname:
+                try:
+                    info = probe_tls(parts.hostname,
+                                     port=parts.port or 443,
+                                     timeout=tls_timeout)
+                    tls_version = info.negotiated if not info.error else ""
+                except Exception:  # noqa: BLE001 - probe fails open
+                    tls_version = ""
         sri_html: str | None = None
         sri_seen = 0
         if sri:
@@ -120,6 +142,7 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str,
             low=sum(1 for f in report.findings if f.severity == "LOW"),
             info=sum(1 for f in report.findings if f.severity == "INFO"),
             elapsed_ms=result.elapsed_ms,
+            tls_version=tls_version,
             report=report,
         ))
     return rows

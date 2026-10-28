@@ -312,3 +312,71 @@ def test_bulk_worst_all_errors_notes_nothing(tmp_path, capsys):
     path.write_text("http://127.0.0.1:1/dead\n")
     assert main(["--bulk", str(path), "--no-color", "--bulk-worst"]) == 0
     assert "No worst-target report" in capsys.readouterr().out
+
+
+def test_bulk_tls_probes_https_targets_only(monkeypatch):
+    import headerhawk.bulk as bulk_mod
+    from headerhawk.fetch import FetchResult
+    from headerhawk.tls import TLSInfo
+
+    calls = []
+
+    def fake_fetch(url, timeout, user_agent):
+        final = ("https://secure.example/" if "secure" in url
+                 else "http://plain.example/")
+        return FetchResult(url=url, final_url=final, status=200, headers={})
+
+    def fake_probe(host, port=443, timeout=5.0):
+        calls.append((host, port))
+        return TLSInfo(host=host, port=port, negotiated="TLSv1.3")
+
+    monkeypatch.setattr(bulk_mod, "fetch", fake_fetch)
+    monkeypatch.setattr(bulk_mod, "probe_tls", fake_probe)
+    rows = audit_targets(["https://secure.example", "http://plain.example"],
+                         timeout=5.0, user_agent="HeaderHawk-test", tls=True)
+    assert calls == [("secure.example", 443)]
+    assert rows[0].tls_version == "TLSv1.3"
+    assert rows[1].tls_version == ""
+    assert rows[0].to_dict()["tls_version"] == "TLSv1.3"
+
+
+def test_bulk_tls_probe_failure_fails_open(monkeypatch):
+    import headerhawk.bulk as bulk_mod
+    from headerhawk.fetch import FetchResult
+    from headerhawk.tls import TLSInfo
+
+    def fake_fetch(url, timeout, user_agent):
+        return FetchResult(url=url, final_url="https://secure.example/",
+                           status=200, headers={})
+
+    def fake_probe(host, port=443, timeout=5.0):
+        return TLSInfo(host=host, port=port, error="handshake refused")
+
+    monkeypatch.setattr(bulk_mod, "fetch", fake_fetch)
+    monkeypatch.setattr(bulk_mod, "probe_tls", fake_probe)
+    rows = audit_targets(["https://secure.example"], timeout=5.0,
+                         user_agent="HeaderHawk-test", tls=True)
+    assert rows[0].tls_version == "" and not rows[0].error
+
+
+def test_bulk_tls_table_column(server, tmp_path, capsys):
+    # The localhost fixture is plain HTTP, so the column shows '-' cells
+    # (probe correctly skipped) — the column itself is the assertion here.
+    code = main(["--bulk", _targets_file(tmp_path, server), "--no-color",
+                 "--bulk-tls"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "TLS" in out.splitlines()[1]
+    rows = [BulkResult(url="https://a.example", status_code=200, grade="A",
+                       score=95, tls_version="TLSv1.3")]
+    shown = render_bulk_table(rows, color=False, show_tls=True)
+    assert "TLSv1.3" in shown
+    hidden = render_bulk_table(rows, color=False)
+    assert "TLSv1.3" not in hidden
+
+
+def test_bulk_tls_without_bulk_or_with_no_tls_is_error(capsys):
+    assert main(["--bulk-tls"]) == 2
+    assert "--bulk-tls only applies with --bulk" in capsys.readouterr().err
+    assert main(["--bulk", "/nonexistent/targets.txt", "--bulk-tls",
+                 "--no-tls"]) == 2

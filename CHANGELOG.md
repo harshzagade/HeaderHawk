@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- `--bulk-tls`: bulk mode runs the TLS version/cipher probe per reachable
+  HTTPS target (capped by `--tls-timeout`) and adds a TLS column with the
+  negotiated version to the summary table (and a `tls_version` key per
+  target in `--json`). Plain-HTTP targets are not probed and failed probes
+  show `-`; the probe is display-only and never changes a grade or adds
+  findings. Rejected without `--bulk` and with `--no-tls`. Covered by 4
+  new tests in `tests/test_bulk.py`.
 - `--bulk-worst`: after the bulk summary table, print the full text report
   of the single worst-graded target (worst grade, ties broken by lowest
   score, then file order), for triage without re-running it. With `--json`

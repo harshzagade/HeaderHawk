@@ -328,8 +328,14 @@ def report_from_dict(payload: dict) -> Report:
     )
 
 
-def render_bulk_table(rows: list[BulkResult], color: bool = True) -> str:
-    """Summary grade table for bulk mode: one row per target."""
+def render_bulk_table(rows: list[BulkResult], color: bool = True,
+                      show_tls: bool = False) -> str:
+    """Summary grade table for bulk mode: one row per target.
+
+    With ``show_tls=True`` (``--bulk-tls``) a TLS column shows each
+    target's negotiated version, or ``-`` when the probe did not run,
+    the target is plain HTTP, or the probe failed.
+    """
     lines: list[str] = []
     paint = lambda t, c: _paint(t, c, color)  # noqa: E731
 
@@ -338,6 +344,8 @@ def render_bulk_table(rows: list[BulkResult], color: bool = True) -> str:
     width = min(64, max((len(r.url) for r in rows), default=6))
     header = (f"{'Target':<{width}}  {'HTTP':>4}  {'Grade':<5}  "
               f"{'Score':>5}  {'High':>4}  {'Med':>3}")
+    if show_tls:
+        header += f"  {'TLS':<7}"
     rule = "-" * len(header)
 
     noun = "target" if len(rows) == 1 else "targets"
@@ -347,15 +355,17 @@ def render_bulk_table(rows: list[BulkResult], color: bool = True) -> str:
 
     for row in rows:
         url = row.url if len(row.url) <= width else row.url[:width - 1] + "\u2026"
+        tls_cell = f"  {row.tls_version or '-':<7}" if show_tls else ""
         if row.error:
             lines.append(f"{url:<{width}}  {'ERR':>4}  "
                          + paint(f"{'ERROR':<5}", "red")
-                         + f"  {'-':>5}  {'-':>4}  {'-':>3}")
+                         + f"  {'-':>5}  {'-':>4}  {'-':>3}" + tls_cell)
         else:
             grade_color = _GRADE_COLOR.get(row.grade, "reset")
             lines.append(f"{url:<{width}}  {row.status_code:>4}  "
                          + paint(f"{row.grade:<5}", grade_color)
-                         + f"  {row.score:>5}  {row.high:>4}  {row.med:>3}")
+                         + f"  {row.score:>5}  {row.high:>4}  {row.med:>3}"
+                         + tls_cell)
 
     lines.append(rule)
 

@@ -78,6 +78,11 @@ headerhawk --bulk targets.txt --sri
 # (with --json, it appears as a 'worst_target' key instead)
 headerhawk --bulk targets.txt --bulk-worst
 
+# Bulk mode with a TLS column: probe each HTTPS target and show its
+# negotiated TLS version in the table (plain-HTTP targets and failed
+# probes show '-'; the probe never changes a grade)
+headerhawk --bulk targets.txt --bulk-tls
+
 # Compare two targets side by side (before/after hardening checks):
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
@@ -196,7 +201,7 @@ documentation-reserved domain):
 | Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie); session-ish cookies without either prefix get an INFO adoption nudge on HTTPS targets (no penalty) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
-| TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH), and certificate expiry — expired certs (HIGH), certs expiring within 30 days (LOW). Skipped for offline, bulk, and plain-HTTP targets; `--no-tls` skips it on demand |
+| TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH), and certificate expiry — expired certs (HIGH), certs expiring within 30 days (LOW). Skipped for offline and plain-HTTP targets; in bulk mode only via `--bulk-tls` (negotiated version shown as a table column, never graded); `--no-tls` skips it on demand |
 | Subresource Integrity | `--sri` mode (live single-URL and `--bulk` modes): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. In bulk mode one bounded HTML fetch runs per reachable target; a failed fetch fails open for that target (header-only audit, no SRI findings). SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
 | SRI `crossorigin` check | `--sri` mode: flags SRI-pinned external resources whose tag lacks `crossorigin=` — LOW (-2) each. Without CORS the browser cannot verify the hash, so the `integrity=` attribute is silently ignored and a tampered CDN copy loads anyway. Same-origin loads are out of scope |
 | Mixed content | `--sri` mode on HTTPS targets: flags `http://` scripts, stylesheets, and images — HIGH (-8) each. Scripts/styles are *active* mixed content (browsers block them); images are *passive* (kill the padlock). Protocol-relative URLs are not mixed content; plain-HTTP pages are out of scope |

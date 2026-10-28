@@ -164,6 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "re-running it. With --json, the worst target "
                              "and its full report appear as a 'worst_target' "
                              "key instead.")
+    parser.add_argument("--bulk-tls", action="store_true",
+                        help="Bulk mode only: run the TLS version/cipher "
+                             "probe per reachable HTTPS target and add a "
+                             "TLS column (negotiated version) to the bulk "
+                             "table. A failed probe shows '-' and never "
+                             "penalizes the grade. Cannot be combined with "
+                             "--no-tls.")
     parser.add_argument("--compare", nargs=2, metavar=("URL_A", "URL_B"),
                         help="Compare two targets side by side: fetch URL_A and "
                              "URL_B, and show what changed (regressed, new, "
@@ -493,11 +500,13 @@ def run_bulk(args: argparse.Namespace) -> int:
         return 2
 
     rows = audit_targets(targets, timeout=args.timeout, user_agent=args.user_agent,
-                         sri=args.sri)
+                         sri=args.sri, tls=args.bulk_tls,
+                         tls_timeout=args.tls_timeout)
     color = not args.no_color and sys.stdout.isatty()
     worst = worst_bulk_row(rows) if args.bulk_worst else None
     output = (render_bulk_json(rows, worst=worst) if args.json
-              else render_bulk_table(rows, color=color))
+              else render_bulk_table(rows, color=color,
+                                     show_tls=args.bulk_tls))
     if args.bulk_worst and not args.json:
         output = output.rstrip() + "\n\n" + render_bulk_worst(worst, color=color)
 
@@ -666,6 +675,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk_worst and not args.bulk:
         print("error: --bulk-worst only applies with --bulk.",
+              file=sys.stderr)
+        return 2
+
+    if args.bulk_tls and not args.bulk:
+        print("error: --bulk-tls only applies with --bulk.",
+              file=sys.stderr)
+        return 2
+
+    if args.bulk_tls and args.no_tls:
+        print("error: --bulk-tls cannot be combined with --no-tls (the "
+              "probe it runs is the one --no-tls skips).",
               file=sys.stderr)
         return 2
 
