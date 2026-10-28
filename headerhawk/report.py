@@ -374,13 +374,54 @@ def render_bulk_table(rows: list[BulkResult], color: bool = True) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_bulk_json(rows: list[BulkResult]) -> str:
-    """Machine-readable bulk report: one object per target."""
+def worst_bulk_row(rows: list[BulkResult]) -> BulkResult | None:
+    """The single worst-graded audited row, or None when nothing audited.
+
+    Worst means furthest down the grade ladder; ties break toward the
+    lowest score, then toward the earliest target in file order (``max``
+    keeps the first row on a full tie). Error rows never win.
+    """
+    ok = [r for r in rows if not r.error and r.grade]
+    if not ok:
+        return None
+    return max(ok, key=lambda r: (grade_index(r.grade), -r.score))
+
+
+def render_bulk_worst(row: BulkResult | None, color: bool = True) -> str:
+    """Full text report of the worst bulk target, for triage without a rerun.
+
+    ``row`` is the ``worst_bulk_row()`` pick (or None when nothing was
+    audited); the header line names the target, grade, and score so the
+    appended report is identifiable at a glance.
+    """
+    paint = lambda t, c: _paint(t, c, color)  # noqa: E731
+    if row is None or row.report is None:
+        return "No worst-target report: no target was audited successfully.\n"
+    header = paint(f"Worst target: {row.url} (grade {row.grade}, "
+                   f"score {row.score}/100)", "bold")
+    return header + "\n\n" + render_text(row.report, color=color)
+
+
+def render_bulk_json(rows: list[BulkResult],
+                     worst: BulkResult | None = None) -> str:
+    """Machine-readable bulk report: one object per target.
+
+    With ``worst`` (the ``worst_bulk_row()`` pick), a ``worst_target``
+    object carries that target's summary plus its full report, so JSON
+    consumers get the same triage shortcut as the text appendix.
+    """
     payload = {
         "tool": f"HeaderHawk v{__version__}",
         "target_count": len(rows),
         "targets": [r.to_dict() for r in rows],
     }
+    if worst is not None and worst.report is not None:
+        payload["worst_target"] = {
+            "url": worst.url,
+            "grade": worst.grade,
+            "score": worst.score,
+            "report": json.loads(render_json(worst.report)),
+        }
     return json.dumps(payload, indent=2) + "\n"
 
 

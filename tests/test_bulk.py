@@ -10,7 +10,8 @@ import pytest
 from headerhawk.bulk import (BulkResult, audit_targets, bulk_report_filename,
                              read_targets)
 from headerhawk.cli import main
-from headerhawk.report import render_bulk_json, render_bulk_table
+from headerhawk.report import (render_bulk_json, render_bulk_table,
+                               worst_bulk_row)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -263,3 +264,51 @@ def test_render_bulk_json_all_errors():
     payload = json.loads(render_bulk_json(rows))
     assert payload["targets"][0]["error"] == "connection refused"
     assert payload["targets"][0]["score"] == -1
+
+
+def test_worst_bulk_row_prefers_grade_then_score():
+    rows = [
+        BulkResult(url="https://a.example", grade="B", score=80),
+        BulkResult(url="https://b.example", grade="F", score=40),
+        BulkResult(url="https://c.example", grade="F", score=20),
+        BulkResult(url="https://dead.example", error="connection refused"),
+    ]
+    assert worst_bulk_row(rows).url == "https://c.example"
+    assert worst_bulk_row(rows[:1]).url == "https://a.example"
+    assert worst_bulk_row(rows[3:]) is None
+    assert worst_bulk_row([]) is None
+
+
+def test_bulk_worst_appends_full_report(server, tmp_path, capsys):
+    code = main(["--bulk", _targets_file(tmp_path, server), "--no-color",
+                 "--bulk-worst"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Worst target:" in out and "/bare" in out
+    # The appendix comes after the summary table, and carries the full
+    # report (grade line + a finding) for the worst target, not just a row.
+    assert out.index("Worst target:") > out.index("bulk audit (3 targets)")
+    assert "GRADE:" in out[out.index("Worst target:"):]
+    assert "Strict-Transport-Security" in out[out.index("Worst target:"):]
+
+
+def test_bulk_worst_json_carries_worst_target(server, tmp_path, capsys):
+    code = main(["--bulk", _targets_file(tmp_path, server), "--json",
+                 "--bulk-worst"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["worst_target"]["url"].endswith("/bare")
+    assert payload["worst_target"]["report"]["grade"] == payload["worst_target"]["grade"]
+    assert payload["worst_target"]["report"]["findings"]
+
+
+def test_bulk_worst_without_bulk_is_error(capsys):
+    assert main(["--bulk-worst"]) == 2
+    assert "--bulk-worst only applies with --bulk" in capsys.readouterr().err
+
+
+def test_bulk_worst_all_errors_notes_nothing(tmp_path, capsys):
+    path = tmp_path / "dead.txt"
+    path.write_text("http://127.0.0.1:1/dead\n")
+    assert main(["--bulk", str(path), "--no-color", "--bulk-worst"]) == 0
+    assert "No worst-target report" in capsys.readouterr().out

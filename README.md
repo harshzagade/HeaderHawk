@@ -73,6 +73,11 @@ headerhawk --bulk targets.txt --bulk-output reports/
 # run once per reachable target (failed HTML fetches fail open per target)
 headerhawk --bulk targets.txt --sri
 
+# Bulk mode, worst target first: after the summary table, print the full
+# report of the single worst-graded target, for triage without re-running it
+# (with --json, it appears as a 'worst_target' key instead)
+headerhawk --bulk targets.txt --bulk-worst
+
 # Compare two targets side by side (before/after hardening checks):
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com

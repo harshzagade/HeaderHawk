@@ -18,10 +18,11 @@ from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, fetch_security_txt,
 from .history import append_run, read_history
 from .offline import load_headers
 from .report import (_SEVERITY_ORDER, diff_reports, grade_index,
-                      render_bulk_json,
-                      render_bulk_table, render_compare, render_compare_json,
+                      render_bulk_json, render_bulk_table, render_bulk_worst,
+                      render_compare, render_compare_json,
                       render_explain, render_history_report, render_json,
-                      render_summary_line, render_text, report_from_dict)
+                      render_summary_line, render_text, report_from_dict,
+                      worst_bulk_row)
 from .sri import (count_external_resources, fetch_html)
 from .tls import probe_tls
 
@@ -156,6 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "report to DIR (one file per target, named from "
                              "its host and path; text files, or JSON with "
                              "--json). Unreachable targets get no file.")
+    parser.add_argument("--bulk-worst", action="store_true",
+                        help="Bulk mode only: after the summary table, print "
+                             "the full text report of the single "
+                             "worst-graded target, for triage without "
+                             "re-running it. With --json, the worst target "
+                             "and its full report appear as a 'worst_target' "
+                             "key instead.")
     parser.add_argument("--compare", nargs=2, metavar=("URL_A", "URL_B"),
                         help="Compare two targets side by side: fetch URL_A and "
                              "URL_B, and show what changed (regressed, new, "
@@ -487,7 +495,11 @@ def run_bulk(args: argparse.Namespace) -> int:
     rows = audit_targets(targets, timeout=args.timeout, user_agent=args.user_agent,
                          sri=args.sri)
     color = not args.no_color and sys.stdout.isatty()
-    output = render_bulk_json(rows) if args.json else render_bulk_table(rows, color=color)
+    worst = worst_bulk_row(rows) if args.bulk_worst else None
+    output = (render_bulk_json(rows, worst=worst) if args.json
+              else render_bulk_table(rows, color=color))
+    if args.bulk_worst and not args.json:
+        output = output.rstrip() + "\n\n" + render_bulk_worst(worst, color=color)
 
     if args.bulk_output:
         try:
@@ -649,6 +661,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk_output and not args.bulk:
         print("error: --bulk-output only applies with --bulk.",
+              file=sys.stderr)
+        return 2
+
+    if args.bulk_worst and not args.bulk:
+        print("error: --bulk-worst only applies with --bulk.",
               file=sys.stderr)
         return 2
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 ### Added
+- `--bulk-worst`: after the bulk summary table, print the full text report
+  of the single worst-graded target (worst grade, ties broken by lowest
+  score, then file order), for triage without re-running it. With `--json`
+  the worst target and its full report appear as a `worst_target` key;
+  when nothing was audited successfully the text mode says so instead.
+  Covered by 5 new tests in `tests/test_bulk.py`.
 - `--bulk-output DIR`: bulk mode also writes each audited target's full
   report to a file in DIR (named from the target's host and path, with
   `-2`/`-3` suffixes on collisions; text files, or JSON with `--json`).
