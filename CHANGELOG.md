@@ -2,6 +2,12 @@
 
 ## Unreleased
 ### Added
+- Permissions-Policy `interest-cohort` note: the legacy FLoC opt-out
+  `interest-cohort=()` used to pass silently, but FLoC was removed and the
+  directive now does nothing. It now gets an INFO note (no score penalty)
+  naming the Topics API successor: `browsing-topics=()` to opt out of
+  Topics, or just remove the directive when `browsing-topics` is already
+  present. Covered by 6 new tests in `tests/test_interest_cohort.py`.
 - Referrer-Policy `no-referrer` value audit: `no-referrer` used to be a
   silent OK pass, but it sends no Referer at all, breaking analytics and
   attribution that rely on the header. It now gets an INFO note (no score

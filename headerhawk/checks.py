@@ -820,8 +820,17 @@ def check_permissions_policy(headers: Headers) -> list[Finding]:
             summary="Permissions-Policy is present but empty; it restricts no features.",
             fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
         )]
+    # Whether the modern Topics API directive is present: it decides what
+    # the legacy interest-cohort note below says about the Topics state.
+    _directives = _split_pp_directives(value)
+    _features_present = set()
+    for _d in _directives:
+        _m = _PP_DIRECTIVE_RE.match(_d)
+        if _m:
+            _features_present.add(_m.group(1).lower())
+    _topics_present = "browsing-topics" in _features_present
     findings = []
-    for directive in _split_pp_directives(value):
+    for directive in _directives:
         if not directive.strip():
             continue  # tolerated trailing comma, e.g. "camera=(),"
         match = _PP_DIRECTIVE_RE.match(directive)
@@ -837,6 +846,34 @@ def check_permissions_policy(headers: Headers) -> list[Finding]:
             ))
             continue
         feature, allowlist = match.group(1).lower(), match.group(2)
+        if feature == "interest-cohort":
+            # Legacy FLoC opt-out: Chrome removed Federated Learning of
+            # Cohorts and this directive now does nothing, whatever its
+            # allowlist. Its successor, the Topics API, is gated by
+            # browsing-topics instead. INFO only — never graded.
+            if allowlist.strip() == "":
+                detail = ("interest-cohort=() was the opt-out from FLoC "
+                          "cohort computation. FLoC was removed, so this "
+                          "directive does nothing now. ")
+            else:
+                detail = ("interest-cohort gated FLoC cohort computation. "
+                          "FLoC was removed, so this directive does nothing "
+                          "now, whatever its allowlist. ")
+            if _topics_present:
+                detail += ("browsing-topics is already present, so the "
+                           "Topics API state is covered; this directive "
+                           "can simply be removed.")
+            else:
+                detail += ("To opt out of its successor, the Topics API, "
+                           "send browsing-topics=() instead; otherwise this "
+                           "directive can simply be removed.")
+            findings.append(Finding(
+                check="Permissions-Policy", header=name, status="info",
+                severity="INFO", score_delta=0,
+                summary="Permissions-Policy names the legacy interest-cohort opt-out.",
+                detail=detail,
+            ))
+            continue
         if feature in _PERMISSIONS_POLICY_DEPRECATED:
             findings.append(Finding(
                 check="Permissions-Policy", header=name, status="info",
