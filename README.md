@@ -193,7 +193,7 @@ documentation-reserved domain):
 | Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence) |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
-| Referrer-Policy | Missing; `unsafe-url`; lax browser default |
+| Referrer-Policy | Missing; `unsafe-url`; lax browser default; `no-referrer` is an INFO note (strongest privacy, but breaks analytics — no penalty) |
 | Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration); unrecognized feature names — LOW (-2), a typo means the restriction is silently unenforced; deprecated/removed features — INFO (do nothing); malformed `=(...)` shapes or invalid allowlist tokens — LOW (-2) |
 | COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |

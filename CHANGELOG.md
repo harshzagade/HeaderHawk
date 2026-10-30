@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Referrer-Policy `no-referrer` value audit: `no-referrer` used to be a
+  silent OK pass, but it sends no Referer at all, breaking analytics and
+  attribution that rely on the header. It now gets an INFO note (no score
+  penalty) naming that trade-off and pointing at
+  `strict-origin-when-cross-origin` for sites that want analytics to keep
+  working. Missing stays LOW (-5) and `unsafe-url` stays MED (-3). Covered
+  by 5 new tests in `tests/test_referrer_policy_no_referrer.py`.
 - `--bulk-tls`: bulk mode runs the TLS version/cipher probe per reachable
   HTTPS target (capped by `--tls-timeout`) and adds a TLS column with the
   negotiated version to the summary table (and a `tls_version` key per

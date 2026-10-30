@@ -653,7 +653,7 @@ def check_x_frame_options(headers: Headers, csp_directives: dict[str, list[str]]
 
 
 _GOOD_REFERRER_POLICIES = {
-    "no-referrer", "same-origin", "strict-origin",
+    "same-origin", "strict-origin",
     "strict-origin-when-cross-origin", "origin", "origin-when-cross-origin",
 }
 
@@ -679,6 +679,23 @@ def check_referrer_policy(headers: Headers) -> list[Finding]:
             summary="Referrer-Policy: unsafe-url leaks the full URL everywhere.",
             detail="Full URLs (including query strings with tokens/IDs) are sent "
                    "to every third party the page links to.",
+            fix="Referrer-Policy: strict-origin-when-cross-origin",
+        )]
+    if v == "no-referrer":
+        # Deliberately not in _GOOD_REFERRER_POLICIES: it is the strongest
+        # privacy setting, but it also sends no Referer at all, which breaks
+        # analytics, attribution, and anything else that reads the header.
+        # That trade-off deserves a note, not a silent pass — and no penalty,
+        # since the header is doing exactly what its author asked for.
+        return [Finding(
+            check="Referrer-Policy", header=name, status="info",
+            severity="INFO", score_delta=0,
+            summary="Referrer-Policy: no-referrer sends no referrer at all.",
+            detail=("No Referer header is sent to any destination, which breaks "
+                    "analytics and attribution that rely on it. Keep this only "
+                    "if that trade-off is intentional; otherwise "
+                    "strict-origin-when-cross-origin keeps analytics working "
+                    "while sending just the origin to cross-origin sites."),
             fix="Referrer-Policy: strict-origin-when-cross-origin",
         )]
     if v == "no-referrer-when-downgrade":
