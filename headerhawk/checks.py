@@ -168,6 +168,25 @@ def check_hsts(headers: Headers, scheme: str) -> list[Finding]:
                     "recommended minimum; two years for preload."),
             fix="Strict-Transport-Security: max-age=63072000; includeSubDomains; preload",
         ))
+    if "preload" in value.lower() and max_age < 15768000:
+        # A preload candidate with under 6 months of max-age is nowhere
+        # near submission-ready: hstspreload.org requires at least one
+        # year (31536000s). This is a separate LOW nudge on top of the
+        # MED short-max-age finding above, because it names the specific
+        # preload-eligibility bar the site fails, not just short HSTS.
+        days = max_age // 86400
+        findings.append(Finding(
+            check="HSTS preload eligibility", header=name, status="weak",
+            severity="LOW", score_delta=-2,
+            summary=(f"HSTS preload candidate with max-age {max_age}s "
+                     f"(~{days} days): below the 1-year preload minimum "
+                     f"(31536000s)."),
+            detail=("The preload directive says this domain wants into the "
+                    "HSTS preload list, but hstspreload.org requires "
+                    "max-age of at least 31536000s (one year). At under six "
+                    "months, a submission would be rejected outright."),
+            fix="Strict-Transport-Security: max-age=63072000; includeSubDomains; preload",
+        ))
     if "includesubdomains" not in value.lower():
         findings.append(Finding(
             check="Strict-Transport-Security", header=name, status="weak",

@@ -12,6 +12,14 @@
   `tests/test_max_redirects.py`; 5 existing fetch fakes in
   `tests/test_watch.py`/`tests/test_bulk.py` updated to accept the new
   keyword (assertions unchanged).
+- HSTS preload-eligibility note: an HSTS value carrying a `preload`
+  directive with `max-age` under 6 months (15768000s) now gets an extra
+  LOW (-2) finding naming the 1-year (31536000s) minimum hstspreload.org
+  requires for submission, on top of the existing MED short-max-age
+  finding. It fires in offline analysis too, and stays silent without a
+  `preload` directive, at exactly 6 months, without a `max-age`, or over
+  plain HTTP. Covered by 6 new tests in
+  `tests/test_hsts_preload_eligibility.py`.
 - Permissions-Policy `interest-cohort` note: the legacy FLoC opt-out
   `interest-cohort=()` used to pass silently, but FLoC was removed and the
   directive now does nothing. It now gets an INFO note (no score penalty)
