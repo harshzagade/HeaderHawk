@@ -112,7 +112,7 @@ headerhawk example.com --history grades.jsonl
 headerhawk --history-report grades.jsonl
 ```
 
-Options: `--timeout SEC`, `--tls-timeout SEC`, `--user-agent UA`, `--no-color`, `--no-tls`,
+Options: `--timeout SEC`, `--tls-timeout SEC`, `--max-redirects N`, `--user-agent UA`, `--no-color`, `--no-tls`,
 `-o/--output FILE`,
 `--fail-below GRADE`, `--fail-on SEVERITY`, `--only SEV`, `--explain SEV`,
 `--summary-line`,
@@ -200,7 +200,7 @@ documentation-reserved domain):
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
 | Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie); session-ish cookies without either prefix get an INFO adoption nudge on HTTPS targets (no penalty) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
-| Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP |
+| Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP. `--max-redirects N` (default 5) caps the chain a fetch follows: a longer chain is a fetch error, not an audit of an intermediate hop |
 | TLS versions / cipher | Live-only probe (stdlib `ssl`): servers still accepting TLS 1.0 (HIGH) or 1.1 (MED), weak negotiated ciphers (RC4, 3DES, NULL, anon, EXPORT — HIGH), and certificate expiry — expired certs (HIGH), certs expiring within 30 days (LOW). Skipped for offline and plain-HTTP targets; in bulk mode only via `--bulk-tls` (negotiated version shown as a table column, never graded); `--no-tls` skips it on demand |
 | Subresource Integrity | `--sri` mode (live single-URL and `--bulk` modes): fetches the page HTML (2 MB cap) and flags external `<script>` / stylesheet `<link>` tags loading without an `integrity=` hash — MED (-4) each. In bulk mode one bounded HTML fetch runs per reachable target; a failed fetch fails open for that target (header-only audit, no SRI findings). SRI pins a third-party file to a hash so a tampered CDN copy is refused by the browser. Same-origin (relative) loads are out of scope |
 | SRI `crossorigin` check | `--sri` mode: flags SRI-pinned external resources whose tag lacks `crossorigin=` — LOW (-2) each. Without CORS the browser cannot verify the hash, so the `integrity=` attribute is silently ignored and a tampered CDN copy loads anyway. Same-origin loads are out of scope |

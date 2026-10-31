@@ -2,6 +2,16 @@
 
 ## Unreleased
 ### Added
+- `--max-redirects N` (default 5): caps the redirect chain the fetcher
+  follows in single-target, `--compare`, `--watch`, and `--bulk` audits.
+  A chain longer than N now raises a fetch error naming the limit and
+  the next hop, instead of silently auditing an intermediate redirect
+  response; in `--bulk` it becomes an ERROR row for that target.
+  Exactly N redirects followed by a final response still succeed, and
+  negative values fail fast with exit 2. Covered by 7 new tests in
+  `tests/test_max_redirects.py`; 5 existing fetch fakes in
+  `tests/test_watch.py`/`tests/test_bulk.py` updated to accept the new
+  keyword (assertions unchanged).
 - Permissions-Policy `interest-cohort` note: the legacy FLoC opt-out
   `interest-cohort=()` used to pass silently, but FLoC was removed and the
   directive now does nothing. It now gets an INFO note (no score penalty)

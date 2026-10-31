@@ -79,7 +79,8 @@ def read_targets(path: str) -> list[str]:
 
 def audit_targets(urls: list[str], timeout: float, user_agent: str,
                   sri: bool = False, tls: bool = False,
-                  tls_timeout: float = 5.0) -> list[BulkResult]:
+                  tls_timeout: float = 5.0,
+                  max_redirects: int = 5) -> list[BulkResult]:
     """Fetch and analyze each URL. Unreachable targets become error rows.
 
     With ``sri=True`` each reachable target also gets one bounded HTML
@@ -95,7 +96,8 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str,
     rows: list[BulkResult] = []
     for url in urls:
         try:
-            result = fetch(url, timeout=timeout, user_agent=user_agent)
+            result = fetch(url, timeout=timeout, user_agent=user_agent,
+                           max_redirects=max_redirects)
         except FetchError as exc:
             rows.append(BulkResult(url=url, error=str(exc)))
             continue

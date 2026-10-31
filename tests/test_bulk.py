@@ -321,7 +321,7 @@ def test_bulk_tls_probes_https_targets_only(monkeypatch):
 
     calls = []
 
-    def fake_fetch(url, timeout, user_agent):
+    def fake_fetch(url, timeout, user_agent, max_redirects=5):
         final = ("https://secure.example/" if "secure" in url
                  else "http://plain.example/")
         return FetchResult(url=url, final_url=final, status=200, headers={})
@@ -345,7 +345,7 @@ def test_bulk_tls_probe_failure_fails_open(monkeypatch):
     from headerhawk.fetch import FetchResult
     from headerhawk.tls import TLSInfo
 
-    def fake_fetch(url, timeout, user_agent):
+    def fake_fetch(url, timeout, user_agent, max_redirects=5):
         return FetchResult(url=url, final_url="https://secure.example/",
                            status=200, headers={})
 

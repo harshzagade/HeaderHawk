@@ -144,7 +144,7 @@ def test_preload_queried_when_directive_present(monkeypatch, capsys):
     headers = _h(strict_transport_security=
                  "max-age=63072000; includeSubDomains; preload")
     monkeypatch.setattr(cli, "fetch",
-                        lambda url, timeout, user_agent: _fetch_result(headers))
+                        lambda url, timeout, user_agent, max_redirects=5: _fetch_result(headers))
     seen = {}
 
     def fake_preload(domain, timeout):
@@ -162,7 +162,7 @@ def test_preload_queried_when_directive_present(monkeypatch, capsys):
 def test_preload_not_queried_without_directive(monkeypatch, capsys):
     headers = _h(strict_transport_security="max-age=63072000; includeSubDomains")
     monkeypatch.setattr(cli, "fetch",
-                        lambda url, timeout, user_agent: _fetch_result(headers))
+                        lambda url, timeout, user_agent, max_redirects=5: _fetch_result(headers))
     called = []
     monkeypatch.setattr(cli, "preload_status",
                         lambda domain, timeout: called.append(domain))
@@ -189,7 +189,7 @@ def test_preload_failed_query_is_info_not_error(monkeypatch, capsys):
     headers = _h(strict_transport_security=
                  "max-age=63072000; includeSubDomains; preload")
     monkeypatch.setattr(cli, "fetch",
-                        lambda url, timeout, user_agent: _fetch_result(headers))
+                        lambda url, timeout, user_agent, max_redirects=5: _fetch_result(headers))
     def fake_preload(domain, timeout):
         raise FetchError("hstspreload.org unreachable")
 

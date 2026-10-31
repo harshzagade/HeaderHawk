@@ -53,6 +53,16 @@ class _RedirectCounter(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         self.count += 1
+        if self.count > self.max_redirections:
+            # Raise here, before urllib's loop detection runs: that path
+            # raises HTTPError, which fetch() would treat as a (redirect)
+            # response worth analyzing. A FetchError instead makes the
+            # over-long chain a fetch failure, never a silent audit of
+            # an intermediate hop. Exactly max_redirections redirects
+            # still succeed; only the (max + 1)th trips this.
+            raise FetchError(
+                f"Redirect limit exceeded: more than "
+                f"{self.max_redirections} redirect(s) (next hop {newurl})")
         self.chain.append(RedirectHop(url=req.get_full_url(), status=code))
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 

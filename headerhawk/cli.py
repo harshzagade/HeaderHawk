@@ -127,6 +127,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "--only or --json.")
     parser.add_argument("--timeout", type=float, default=10.0, metavar="SEC",
                         help="Fetch timeout in seconds (default: 10).")
+    parser.add_argument("--max-redirects", type=int, default=5, metavar="N",
+                        help="Maximum redirects to follow (default: 5). A "
+                             "chain longer than N is a fetch error, not an "
+                             "audit of an intermediate hop; in --bulk it "
+                             "becomes an ERROR row for that target. "
+                             "Applies to single-target, --compare, --watch, "
+                             "and --bulk audits.")
     parser.add_argument("--tls-timeout", type=float, default=5.0,
                         metavar="SEC",
                         help="TLS handshake probe timeout in seconds "
@@ -266,7 +273,8 @@ def _audit_one(url: str, *, timeout: float,
                user_agent: str, sri: bool = False,
                quiet_secondary: bool = False,
                no_tls: bool = False,
-               tls_timeout: float = 5.0) -> tuple[Report, Headers]:
+               tls_timeout: float = 5.0,
+               max_redirects: int = 5) -> tuple[Report, Headers]:
     """Fetch a URL once and return (report, raw headers).
 
     The HSTS preload-list status is queried when the response advertises a
@@ -282,7 +290,8 @@ def _audit_one(url: str, *, timeout: float,
     rather than penalizing the grade. ``tls_timeout`` (--tls-timeout) caps
     each TLS handshake probe at that many seconds.
     """
-    result = fetch(url, timeout=timeout, user_agent=user_agent)
+    result = fetch(url, timeout=timeout, user_agent=user_agent,
+                   max_redirects=max_redirects)
     scheme = urllib.parse.urlsplit(result.final_url).scheme or "https"
     tls: object = "unchecked"
     if scheme == "https" and not no_tls:
@@ -413,7 +422,8 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                                        user_agent=args.user_agent,
                                        quiet_secondary=True,
                                        no_tls=args.no_tls,
-                                       tls_timeout=args.tls_timeout)
+                                       tls_timeout=args.tls_timeout,
+                                       max_redirects=args.max_redirects)
             except FetchError as exc:
                 if prev is None:
                     print(f"error: {exc}", file=sys.stderr)
@@ -501,7 +511,8 @@ def run_bulk(args: argparse.Namespace) -> int:
 
     rows = audit_targets(targets, timeout=args.timeout, user_agent=args.user_agent,
                          sri=args.sri, tls=args.bulk_tls,
-                         tls_timeout=args.tls_timeout)
+                         tls_timeout=args.tls_timeout,
+                         max_redirects=args.max_redirects)
     color = not args.no_color and sys.stdout.isatty()
     worst = worst_bulk_row(rows) if args.bulk_worst else None
     output = (render_bulk_json(rows, worst=worst) if args.json
@@ -603,7 +614,8 @@ def run_compare(args: argparse.Namespace) -> int:
             report, _ = _audit_one(url, timeout=args.timeout,
                                    user_agent=args.user_agent,
                                    no_tls=args.no_tls,
-                                   tls_timeout=args.tls_timeout)
+                                   tls_timeout=args.tls_timeout,
+                                   max_redirects=args.max_redirects)
         except FetchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -660,6 +672,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.tls_timeout <= 0:
         print(f"error: --tls-timeout must be positive (got {args.tls_timeout:g}s).",
+              file=sys.stderr)
+        return 2
+    if args.max_redirects < 0:
+        print(f"error: --max-redirects must be zero or greater "
+              f"(got {args.max_redirects}).",
               file=sys.stderr)
         return 2
     if args.no_tls and args.tls_timeout != build_parser().get_default("tls_timeout"):
@@ -775,7 +792,8 @@ def main(argv: list[str] | None = None) -> int:
                                              user_agent=args.user_agent,
                                              sri=args.sri,
                                              no_tls=args.no_tls,
-                                             tls_timeout=args.tls_timeout)
+                                             tls_timeout=args.tls_timeout,
+                                             max_redirects=args.max_redirects)
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
