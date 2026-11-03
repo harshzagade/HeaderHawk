@@ -184,6 +184,14 @@ def build_parser() -> argparse.ArgumentParser:
                              "resolved, improved findings). Made for before/after "
                              "hardening checks. --fail-below gates on URL_B. "
                              "Add --ignore-info to hide INFO/OK-only diffs.")
+    parser.add_argument("--compare-headers", nargs=2, metavar=("FILE_A", "FILE_B"),
+                        help="Compare two saved header dumps side by side: "
+                             "analyze FILE_A and FILE_B offline (same format "
+                             "as --headers) and show the same before/after "
+                             "diff as --compare, for reviewing config changes "
+                             "without live targets. --fail-below gates on "
+                             "FILE_B. Add --ignore-info to hide INFO/OK-only "
+                             "diffs.")
     parser.add_argument("--ignore-info", action="store_true",
                         help="Compare modes only: hide INFO/OK-only diffs in "
                              "--compare and --diff-against output so "
@@ -662,12 +670,72 @@ def run_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_compare_headers(args: argparse.Namespace) -> int:
+    """Analyze two saved header dumps and print a before/after diff.
+
+    Mirrors run_compare, but offline: each file is parsed by load_headers
+    (the --headers format) and analyzed as HTTPS, so saved captures from
+    before and after a config change can be diffed without live targets.
+    A missing or headerless file fails fast with exit 2; --fail-below and
+    --fail-on gate on FILE_B, as --compare gates on URL_B.
+    """
+    reports = []
+    for path in args.compare_headers:
+        try:
+            headers = load_headers(path)
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        reports.append(analyze(headers, scheme="https", meta={"url": path}))
+
+    color = not args.no_color and sys.stdout.isatty()
+    output = (render_compare_json(*reports, ignore_info=args.ignore_info)
+              if args.json
+              else render_compare(*reports, color=color,
+                                  ignore_info=args.ignore_info))
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(output)
+    else:
+        sys.stdout.write(output)
+
+    if args.fail_below:
+        try:
+            threshold = grade_index(args.fail_below)
+        except ValueError:
+            print(f"error: unknown grade {args.fail_below!r} "
+                  f"(use one of A+ A B C D E F).", file=sys.stderr)
+            return 2
+        if grade_index(reports[1].grade) > threshold:
+            if not args.json:
+                sys.stderr.write(
+                    f"Grade {reports[1].grade} (FILE_B) is below the required "
+                    f"{args.fail_below.upper()}.\n")
+            return 1
+    if args.fail_on:
+        try:
+            max_rank = _parse_fail_on(args.fail_on)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        offending = _findings_at_or_above(reports[1], max_rank)
+        if offending:
+            if not args.json:
+                sys.stderr.write(
+                    f"Finding gate failed: {len(offending)} finding(s) at or "
+                    f"above {args.fail_on.upper()} severity on FILE_B.\n")
+            return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if args.ignore_info and not (args.compare or args.diff_against):
-        print("error: --ignore-info only applies with --compare or "
-              "--diff-against.", file=sys.stderr)
+    if args.ignore_info and not (args.compare or args.compare_headers
+                                 or args.diff_against):
+        print("error: --ignore-info only applies with --compare, "
+              "--compare-headers, or --diff-against.", file=sys.stderr)
         return 2
 
     if args.tls_timeout <= 0:
@@ -707,17 +775,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.bulk:
-        if args.url or args.headers or args.compare or args.explain \
+        if args.url or args.headers or args.compare or args.compare_headers \
+                or args.explain \
                 or args.summary_line or args.diff_against \
                 or args.history:
             print("error: --bulk cannot be combined with a URL, --headers, "
-                  "--compare, --explain, --summary-line, "
+                  "--compare, --compare-headers, --explain, --summary-line, "
                   "--diff-against, or --history.", file=sys.stderr)
             return 2
         return run_bulk(args)
 
     if args.history_report:
         conflicting = (args.url, args.headers, args.bulk, args.compare,
+                       args.compare_headers,
                        args.watch, args.diff_against, args.sri, args.history,
                        args.raw, args.only, args.explain, args.summary_line,
                        args.json, args.output, args.fail_below, args.fail_on,
@@ -728,6 +798,19 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
         return run_history_report(args)
+
+    if args.compare_headers:
+        if args.url or args.headers or args.compare:
+            print("error: --compare-headers cannot be combined with a URL, "
+                  "--headers, or --compare.", file=sys.stderr)
+            return 2
+        if args.raw or args.only or args.explain or args.summary_line \
+                or args.sri or args.diff_against or args.history:
+            print("error: --raw, --only, --explain, --summary-line, --sri, "
+                  "--diff-against, and --history apply to single-target "
+                  "mode, not --compare-headers.", file=sys.stderr)
+            return 2
+        return run_compare_headers(args)
 
     if args.compare:
         if args.url or args.headers:
@@ -748,9 +831,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.watch is not None:
-        if args.bulk or args.compare or args.headers:
+        if args.bulk or args.compare or args.compare_headers or args.headers:
             print("error: --watch cannot be combined with --bulk, --compare, "
-                  "or --headers.", file=sys.stderr)
+                  "--compare-headers, or --headers.", file=sys.stderr)
             return 2
         if not args.url:
             print("error: --watch needs a live URL to re-audit.",

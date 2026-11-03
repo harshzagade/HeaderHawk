@@ -2,6 +2,16 @@
 
 ## Unreleased
 ### Added
+- `--compare-headers FILE_A FILE_B`: offline compare mode — analyzes two
+  saved header dumps (the same format `--headers` accepts) and prints the
+  same before/after diff as `--compare` (text or `--json`, `--ignore-info`
+  supported, `--fail-below`/`--fail-on` gate on FILE_B), so config changes
+  can be reviewed from before/after captures without live targets. A
+  missing or headerless file fails fast with exit 2; it cannot be combined
+  with a URL, `--headers`, `--compare`, `--bulk`, `--watch`, `--raw`,
+  `--only`, `--explain`, `--summary-line`, `--sri`, `--diff-against`, or
+  `--history`. Covered by 7 new tests in
+  `tests/test_compare_headers.py`.
 - `--max-redirects N` (default 5): caps the redirect chain the fetcher
   follows in single-target, `--compare`, `--watch`, and `--bulk` audits.
   A chain longer than N now raises a fetch error naming the limit and

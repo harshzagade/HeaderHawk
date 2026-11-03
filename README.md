@@ -94,6 +94,10 @@ headerhawk --compare http://staging.example.com https://example.com --ignore-inf
 # (drift detection for CI / post-deploy checks; same diff output)
 headerhawk https://example.com --diff-against baseline.json
 
+# Compare two saved header dumps offline (same diff as --compare, but no
+# live targets: review a config change from captures taken before/after)
+headerhawk --compare-headers before-headers.txt after-headers.txt
+
 # Watch mode: re-audit every 60 seconds, alerting only when the grade or
 # findings change (for monitoring your own site after deploys)
 headerhawk example.com --watch 60
@@ -118,7 +122,7 @@ Options: `--timeout SEC`, `--tls-timeout SEC`, `--max-redirects N`, `--user-agen
 `--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
 `--bulk-output DIR`,
-`--compare URL_A URL_B`, `--diff-against FILE`,
+`--compare URL_A URL_B`, `--compare-headers FILE_A FILE_B`, `--diff-against FILE`,
 `--watch SEC`, `--watch-log FILE`, `--version`. Run
 `headerhawk --help` for the full list.
 
