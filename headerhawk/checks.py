@@ -65,6 +65,18 @@ class Report:
     redirect_chain: list[RedirectHop] = field(default_factory=list)
     tls_info: TLSInfo | None = None
 
+    def severity_counts(self) -> dict[str, int]:
+        """Per-severity finding counts, every severity present even at zero.
+
+        CI parsers can read ``severity_counts["HIGH"]`` directly instead of
+        recounting the findings array; unknown severities (none are produced
+        today) fall under their own key rather than being dropped.
+        """
+        counts = {"HIGH": 0, "MED": 0, "LOW": 0, "INFO": 0, "OK": 0}
+        for finding in self.findings:
+            counts[finding.severity] = counts.get(finding.severity, 0) + 1
+        return counts
+
     def to_dict(self) -> dict:
         return {
             "url": self.url,
@@ -75,6 +87,7 @@ class Report:
             "scheme": self.scheme,
             "score": self.score,
             "grade": self.grade,
+            "severity_counts": self.severity_counts(),
             "headers_seen": self.headers_seen,
             "cookies_seen": self.cookies_seen,
             "sri_seen": self.sri_seen,

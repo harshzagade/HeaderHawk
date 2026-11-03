@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- JSON `severity_counts` histogram: `--json` reports now carry a
+  per-severity finding count (`HIGH`/`MED`/`LOW`/`INFO`/`OK`, every key
+  present even at zero) alongside the findings array, via a new
+  `Report.severity_counts()` helper, so CI parsers need not recount. It
+  flows through single-target, `--compare`/`--compare-headers` (both sides),
+  and `--diff-against` reports, and survives a `report_from_dict()` round
+  trip since it is recomputed from findings. Covered by 3 new tests in
+  `tests/test_severity_histogram.py`.
 - `--compare-headers FILE_A FILE_B`: offline compare mode — analyzes two
   saved header dumps (the same format `--headers` accepts) and prints the
   same before/after diff as `--compare` (text or `--json`, `--ignore-info`

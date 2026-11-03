@@ -41,6 +41,8 @@ curl -sI https://example.com | headerhawk --json
 
 # Machine-readable report for piping into other tools
 headerhawk example.com --json | jq .grade
+# Per-severity counts ride along, so CI parsers need not recount findings
+headerhawk example.com --json | jq .severity_counts
 
 # CI gate: exit 1 unless the grade is at least B
 headerhawk example.com --fail-below B
