@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- CORP weak-value audit: a `Cross-Origin-Resource-Policy: cross-origin`
+  value used to pass silently, but it lets every origin load the resource
+  no-cors, switching off the Spectre / resource-theft protection the header
+  exists for. It now gets a LOW (-2) finding pointing at `same-site` (or
+  `same-origin`); unrecognized CORP values get the same LOW (-2), since
+  browsers ignore values they do not know. Missing CORP stays an INFO note
+  and `same-site` / `same-origin` stay silent. Covered by 5 new tests in
+  `tests/test_corp_weak_value.py`.
 - Per-target timeouts in bulk files: a `# timeout=N` directive line in a
   `--bulk` target file sets the fetch timeout (seconds) for every target
   listed after it, until another directive changes it, so slow targets can

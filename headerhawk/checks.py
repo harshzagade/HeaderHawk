@@ -992,6 +992,29 @@ def check_cross_origin_policies(headers: Headers) -> list[Finding]:
                    "resources no-cors (Spectre / resource-theft mitigation).",
             fix="Cross-Origin-Resource-Policy: same-site",
         ))
+    elif corp.strip().lower() == "cross-origin":
+        findings.append(Finding(
+            check="Cross-Origin-Resource-Policy",
+            header="Cross-Origin-Resource-Policy", status="weak",
+            severity="LOW", score_delta=-2,
+            summary="Cross-Origin-Resource-Policy allows any origin to load "
+                    "this resource.",
+            detail="CORP: cross-origin is the weakest value — every site may "
+                   "load your resources no-cors, so the Spectre / "
+                   "resource-theft protection the header exists for is off. "
+                   "Use same-site (or same-origin for the strictest scope).",
+            fix="Cross-Origin-Resource-Policy: same-site",
+        ))
+    elif corp.strip().lower() not in ("same-origin", "same-site"):
+        findings.append(Finding(
+            check="Cross-Origin-Resource-Policy",
+            header="Cross-Origin-Resource-Policy", status="weak",
+            severity="LOW", score_delta=-2,
+            summary=f"CORP has an unrecognized value: {corp!r}.",
+            detail="Browsers ignore CORP values they do not recognize, so "
+                   "the header provides no protection at all.",
+            fix="Cross-Origin-Resource-Policy: same-site",
+        ))
     if not findings:
         findings.append(Finding(
             check="Cross-origin isolation", header="COOP/COEP/CORP",

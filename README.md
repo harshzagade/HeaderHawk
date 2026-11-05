@@ -211,7 +211,7 @@ documentation-reserved domain):
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
 | Referrer-Policy | Missing; `unsafe-url`; lax browser default; `no-referrer` is an INFO note (strongest privacy, but breaks analytics — no penalty) |
 | Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration); unrecognized feature names — LOW (-2), a typo means the restriction is silently unenforced; deprecated/removed features — INFO (do nothing); legacy `interest-cohort=()` FLoC opt-out — INFO (FLoC removed; the Topics API is gated by `browsing-topics`); malformed `=(...)` shapes or invalid allowlist tokens — LOW (-2) |
-| COOP / COEP / CORP | Informational: missing or weak cross-origin isolation |
+| COOP / COEP / CORP | Informational: missing cross-origin isolation headers. CORP `cross-origin` (LOW, -2) lets any origin load the resource no-cors, and unrecognized CORP values are ignored by browsers (LOW, -2) — use `same-site` (or `same-origin`) |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
 | Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie); session-ish cookies without either prefix get an INFO adoption nudge on HTTPS targets (no penalty) |
@@ -262,8 +262,10 @@ biggest penalties first. Work this list top-down:
    with no preload-list entry (-5, MED — false confidence: remove the
    token or actually submit the domain). These are one-line header changes.
 7. **Polish the LOWs (-2 each):** cert expiring within 30 days, SRI
-   `crossorigin=` attributes, and Permissions-Policy typos / malformed
-   directives (browsers ignore them, so the fix is free points).
+   `crossorigin=` attributes, Permissions-Policy typos / malformed
+   directives (browsers ignore them, so the fix is free points), and a
+   CORP value of `cross-origin` or an unrecognized value (same reason —
+   the header does nothing as sent).
    Small effort, last few points.
 
 INFO and OK findings cost nothing — they are hardening notes and
