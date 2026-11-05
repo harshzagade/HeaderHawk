@@ -3,6 +3,11 @@
 Target file format: one URL per line (https:// assumed when the scheme is
 omitted), blank lines and '#' comments skipped. Per-target fetch failures
 become ERROR rows instead of aborting the run.
+
+A ``# timeout=N`` directive line sets the fetch timeout (seconds) for every
+target listed after it, until another directive changes it — so slow targets
+can keep a generous timeout inside an otherwise fast bulk run. Targets
+before any directive use the run default (``--timeout``).
 """
 
 from __future__ import annotations
@@ -61,27 +66,78 @@ class BulkResult:
         }
 
 
-def read_targets(path: str) -> list[str]:
-    """Read target URLs from a file. Raises ValueError/OSError on problems."""
+@dataclass
+class BulkTarget:
+    """One bulk target: a URL plus its fetch timeout override.
+
+    ``timeout`` is None when the target file sets no override — the caller
+    then uses the run default (``--timeout``).
+    """
+
+    url: str
+    timeout: float | None = None
+
+
+# ``# timeout=5`` directive lines in a bulk target file. The value is the
+# fetch timeout in seconds for every target listed after the directive,
+# until another directive changes it.
+_TIMEOUT_DIRECTIVE = re.compile(r"^#\s*timeout\s*=\s*(\S+)\s*$", re.IGNORECASE)
+
+
+def read_bulk_targets(path: str) -> list[BulkTarget]:
+    """Read targets from a file, honoring ``# timeout=N`` directives.
+
+    Raises ValueError/OSError on problems. A directive with a value that is
+    not a positive number fails fast, naming the offending line — a bad
+    timeout silently ignored would audit slow targets with the wrong
+    deadline.
+    """
     with open(path, encoding="utf-8") as fh:
         lines = fh.readlines()
-    targets = []
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
+    targets: list[BulkTarget] = []
+    timeout: float | None = None
+    for lineno, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line:
             continue
-        targets.append(line)
+        match = _TIMEOUT_DIRECTIVE.match(line)
+        if match:
+            try:
+                value = float(match.group(1))
+            except ValueError:
+                raise ValueError(
+                    f"Invalid timeout in {path!r} line {lineno}: "
+                    f"{match.group(1)!r} is not a number")
+            if value <= 0:
+                raise ValueError(
+                    f"Invalid timeout in {path!r} line {lineno}: "
+                    f"timeout must be positive, got {value}")
+            timeout = value
+            continue
+        if line.startswith("#"):
+            continue
+        targets.append(BulkTarget(url=line, timeout=timeout))
     if not targets:
         raise ValueError(f"No targets found in {path!r} "
                          "(expected one URL per line)")
     return targets
 
 
-def audit_targets(urls: list[str], timeout: float, user_agent: str,
-                  sri: bool = False, tls: bool = False,
+def read_targets(path: str) -> list[str]:
+    """Read target URLs from a file. Raises ValueError/OSError on problems."""
+    return [t.url for t in read_bulk_targets(path)]
+
+
+def audit_targets(urls: list[str | BulkTarget], timeout: float,
+                  user_agent: str, sri: bool = False, tls: bool = False,
                   tls_timeout: float = 5.0,
                   max_redirects: int = 5) -> list[BulkResult]:
     """Fetch and analyze each URL. Unreachable targets become error rows.
+
+    Each entry may be a plain URL string (run-default timeout) or a
+    :class:`BulkTarget` carrying its own timeout override from a
+    ``# timeout=N`` directive in the target file; the override applies to
+    both the header fetch and the ``--sri`` HTML fetch for that target.
 
     With ``sri=True`` each reachable target also gets one bounded HTML
     fetch for the Subresource Integrity audit (the same check single-URL
@@ -94,9 +150,12 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str,
     never a grade penalty — and plain-HTTP targets are not probed.
     """
     rows: list[BulkResult] = []
-    for url in urls:
+    for item in urls:
+        target = item if isinstance(item, BulkTarget) else BulkTarget(url=item)
+        url = target.url
+        target_timeout = target.timeout if target.timeout is not None else timeout
         try:
-            result = fetch(url, timeout=timeout, user_agent=user_agent,
+            result = fetch(url, timeout=target_timeout, user_agent=user_agent,
                            max_redirects=max_redirects)
         except FetchError as exc:
             rows.append(BulkResult(url=url, error=str(exc)))
@@ -117,7 +176,8 @@ def audit_targets(urls: list[str], timeout: float, user_agent: str,
         sri_seen = 0
         if sri:
             try:
-                page = fetch_html(url, timeout=timeout, user_agent=user_agent)
+                page = fetch_html(url, timeout=target_timeout,
+                                  user_agent=user_agent)
                 sri_html = page.html
                 sri_seen = count_external_resources(sri_html)
             except FetchError:

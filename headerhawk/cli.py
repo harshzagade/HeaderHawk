@@ -11,7 +11,7 @@ import time
 import urllib.parse
 
 from . import __version__
-from .bulk import audit_targets, bulk_report_filename, read_targets
+from .bulk import audit_targets, bulk_report_filename, read_bulk_targets
 from .checks import Headers, Report, analyze, get
 from .fetch import (DEFAULT_USER_AGENT, FetchError, fetch, fetch_security_txt,
                    preload_status)
@@ -512,7 +512,7 @@ def run_history_report(args: argparse.Namespace) -> int:
 
 def run_bulk(args: argparse.Namespace) -> int:
     try:
-        targets = read_targets(args.bulk)
+        targets = read_bulk_targets(args.bulk)
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

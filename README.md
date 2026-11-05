@@ -66,6 +66,16 @@ headerhawk example.com -o report.txt
 headerhawk --bulk targets.txt
 headerhawk --bulk targets.txt --json | jq '.targets[].grade'
 
+# Slow targets in a fast bulk run: a `# timeout=N` line in the target file
+# sets the fetch timeout (seconds) for every target listed after it, until
+# another directive changes it (targets before any directive use --timeout).
+# targets.txt:
+#   https://fast.example.com
+#   # timeout=2
+#   https://slow-legacy.example.com
+#   # timeout=10
+#   https://also-slow.example.com
+
 # Bulk mode with per-target reports: the summary table still prints, and each
 # audited target also gets its full report as a file in reports/ (named from
 # its host and path; JSON files with --json). Unreachable targets get no file.

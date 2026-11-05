@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- Per-target timeouts in bulk files: a `# timeout=N` directive line in a
+  `--bulk` target file sets the fetch timeout (seconds) for every target
+  listed after it, until another directive changes it, so slow targets can
+  keep a generous timeout inside an otherwise fast bulk run (targets before
+  any directive use `--timeout`). The override applies to the header fetch
+  and the `--sri` HTML fetch alike. A directive with a non-numeric or
+  non-positive value fails fast naming the offending line. Covered by 8 new
+  tests in `tests/test_bulk_timeout.py`.
 - JSON `severity_counts` histogram: `--json` reports now carry a
   per-severity finding count (`HIGH`/`MED`/`LOW`/`INFO`/`OK`, every key
   present even at zero) alongside the findings array, via a new
