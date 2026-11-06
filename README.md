@@ -209,6 +209,7 @@ documentation-reserved domain):
 | Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence). A `preload` candidate with `max-age` under 6 months also gets a LOW nudge toward the 1-year preload minimum |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values |
+| Expect-CT | Obsolete — Chrome removed enforcement in Jan 2025, so a present header is an INFO note (it does nothing now; safe to remove). Absent headers stay silent |
 | Referrer-Policy | Missing; `unsafe-url`; lax browser default; `no-referrer` is an INFO note (strongest privacy, but breaks analytics — no penalty) |
 | Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration); unrecognized feature names — LOW (-2), a typo means the restriction is silently unenforced; deprecated/removed features — INFO (do nothing); legacy `interest-cohort=()` FLoC opt-out — INFO (FLoC removed; the Topics API is gated by `browsing-topics`); malformed `=(...)` shapes or invalid allowlist tokens — LOW (-2) |
 | COOP / COEP / CORP | Informational: missing cross-origin isolation headers. CORP `cross-origin` (LOW, -2) lets any origin load the resource no-cors, and unrecognized CORP values are ignored by browsers (LOW, -2) — use `same-site` (or `same-origin`) |

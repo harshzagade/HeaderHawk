@@ -684,6 +684,31 @@ def check_x_frame_options(headers: Headers, csp_directives: dict[str, list[str]]
     )]
 
 
+def check_expect_ct(headers: Headers) -> list[Finding]:
+    """Flag a present Expect-CT header as an obsolete no-op (INFO only).
+
+    Chrome removed Expect-CT enforcement in Chrome 132 (January 2025) and
+    no other browser ever enforced it, so the header does nothing today:
+    Certificate Transparency is enforced by browsers by default. It is a
+    note, not a penalty — a site sending it is not less secure, just carrying
+    dead configuration. Absent headers stay silent: there is nothing to do.
+    """
+    name = "Expect-CT"
+    value = get(headers, name)
+    if value is None:
+        return []
+    return [Finding(
+        check="Expect-CT", header=name, status="info",
+        severity="INFO", score_delta=0,
+        summary="Expect-CT is obsolete — no browser enforces it anymore.",
+        detail=("Chrome removed Expect-CT enforcement in Chrome 132 "
+                "(January 2025); other browsers never enforced it. "
+                "Certificate Transparency is enforced by browsers by "
+                "default, so the header does nothing now."),
+        fix="Remove the Expect-CT header.",
+    )]
+
+
 _GOOD_REFERRER_POLICIES = {
     "same-origin", "strict-origin",
     "strict-origin-when-cross-origin", "origin", "origin-when-cross-origin",
@@ -1816,6 +1841,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_csp(headers)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)
+    findings += check_expect_ct(headers)
     findings += check_referrer_policy(headers)
     findings += check_permissions_policy(headers)
     findings += check_cross_origin_policies(headers)

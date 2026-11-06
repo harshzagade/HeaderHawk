@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Expect-CT deprecation note: the header is obsolete (Chrome removed
+  enforcement in Chrome 132, January 2025; no other browser ever enforced
+  it), so a present header now gets an INFO finding saying it does nothing
+  and is safe to remove, instead of passing silently. It costs no points —
+  Certificate Transparency is enforced by browsers by default — and absent
+  headers stay silent. Covered by 4 new tests in
+  `tests/test_expect_ct.py`.
 - CORP weak-value audit: a `Cross-Origin-Resource-Policy: cross-origin`
   value used to pass silently, but it lets every origin load the resource
   no-cors, switching off the Spectre / resource-theft protection the header
