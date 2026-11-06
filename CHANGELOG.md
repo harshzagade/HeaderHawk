@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- X-Frame-Options `ALLOW-FROM` deprecation: the obsolete value was only
+  ever honored by Internet Explorer and legacy Edge, so modern browsers
+  ignore it entirely. It now gets its own LOW (-3) finding naming the
+  deprecation and pointing at CSP `frame-ancestors`, instead of the generic
+  "non-standard value" message (same penalty as before). When a CSP
+  `frame-ancestors` policy is present the value stays moot behind the
+  existing INFO note. Covered by 6 new tests in
+  `tests/test_xfo_allow_from.py`.
 - Expect-CT deprecation note: the header is obsolete (Chrome removed
   enforcement in Chrome 132, January 2025; no other browser ever enforced
   it), so a present header now gets an INFO finding saying it does nothing

@@ -669,6 +669,24 @@ def check_x_frame_options(headers: Headers, csp_directives: dict[str, list[str]]
                     "enabling clickjacking attacks against its users."),
             fix="X-Frame-Options: DENY  (or SAMEORIGIN if framing is needed)",
         )]
+    if value.strip().upper().startswith("ALLOW-FROM"):
+        # ALLOW-FROM was only ever honored by Internet Explorer and legacy
+        # Edge; every modern browser ignores the value entirely, so a site
+        # relying on it is effectively unprotected against framing from the
+        # named origin. Same penalty as any other non-standard value (-3),
+        # but the finding names the deprecation and the real replacement
+        # instead of the generic "non-standard value" message.
+        return [Finding(
+            check="X-Frame-Options", header=name, status="weak",
+            severity="LOW", score_delta=-3,
+            summary="X-Frame-Options: ALLOW-FROM is obsolete — modern browsers ignore it.",
+            detail=("ALLOW-FROM was only honored by Internet Explorer and "
+                    "legacy Edge. Chrome, Firefox, and Safari ignore the "
+                    "value entirely, so the page is effectively unprotected "
+                    "against clickjacking from the named origin."),
+            fix=("Content-Security-Policy: frame-ancestors https://example.com"
+                 "  (and drop the ALLOW-FROM value)"),
+        )]
     if value.strip().upper() not in ("DENY", "SAMEORIGIN"):
         return [Finding(
             check="X-Frame-Options", header=name, status="weak",
