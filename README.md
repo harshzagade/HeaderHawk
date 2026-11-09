@@ -211,7 +211,7 @@ documentation-reserved domain):
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values; obsolete `ALLOW-FROM` (LOW, -3) — modern browsers ignore it, use CSP `frame-ancestors` instead |
 | Expect-CT | Obsolete — Chrome removed enforcement in Jan 2025, so a present header is an INFO note (it does nothing now; safe to remove). Absent headers stay silent |
 | Referrer-Policy | Missing; `unsafe-url`; lax browser default; `no-referrer` is an INFO note (strongest privacy, but breaks analytics — no penalty) |
-| Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration); unrecognized feature names — LOW (-2), a typo means the restriction is silently unenforced; deprecated/removed features — INFO (do nothing); legacy `interest-cohort=()` FLoC opt-out — INFO (FLoC removed; the Topics API is gated by `browsing-topics`); malformed `=(...)` shapes or invalid allowlist tokens — LOW (-2) |
+| Permissions-Policy | Missing (flags legacy `Feature-Policy` for migration); unrecognized feature names — LOW (-2), a typo means the restriction is silently unenforced; deprecated/removed features — INFO (do nothing); legacy `interest-cohort=()` FLoC opt-out — INFO (FLoC removed; the Topics API is gated by `browsing-topics`); malformed `=(...)` shapes or invalid allowlist tokens — LOW (-2); sensitive features (`camera`, `microphone`, `geolocation`) allowed to `*` — MED (-5), every origin may use the device |
 | COOP / COEP / CORP | Informational: missing cross-origin isolation headers. CORP `cross-origin` (LOW, -2) lets any origin load the resource no-cors, and unrecognized CORP values are ignored by browsers (LOW, -2) — use `same-site` (or `same-origin`) |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
@@ -261,7 +261,9 @@ biggest penalties first. Work this list top-down:
 6. **Quick hygiene wins (-5 / -4 / -3):** cookie `Secure` and `HttpOnly`
    flags, `SameSite` values, `Cache-Control: public` on a response that
    sets cookies (-5, MED — shared caches may serve the cookie-setting
-   response to other users), SRI hashes on external scripts/styles
+   response to other users), Permissions-Policy letting `camera` /
+   `microphone` / `geolocation` to `*` (-5, MED each — every origin may
+   use the device), SRI hashes on external scripts/styles
    (-4 each), a `Referrer-Policy`, and a bare HSTS `preload` directive
    with no preload-list entry (-5, MED — false confidence: remove the
    token or actually submit the domain). These are one-line header changes.

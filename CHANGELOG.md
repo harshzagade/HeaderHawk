@@ -2,6 +2,15 @@
 
 ## Unreleased
 ### Added
+- Permissions-Policy sensitive-feature allowlist audit: a lone `*` is
+  valid per the spec (it allows the feature for every origin), so it is
+  no longer reported as an invalid allowlist token — but for the
+  sensitive features `camera`, `microphone`, and `geolocation` it now
+  gets a MED (-5) finding each, since any third-party script on the
+  page may then use the device. Other features allowed to `*` stay
+  valid and silent. Covered by 9 new tests in
+  `tests/test_permissions_policy_sensitive_allowlist.py` (plus one
+  updated syntax test that now uses a genuinely invalid token).
 - Cache-Control `public` + Set-Cookie clash: a `public` directive on a
   response that also sets cookies now gets a MED (-5) finding, since a
   shared cache may store the response and serve it — `Set-Cookie`

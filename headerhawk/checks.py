@@ -831,17 +831,29 @@ _PERMISSIONS_POLICY_DEPRECATED = frozenset({
     "oversized-images", "unoptimized-images", "unsized-media",
     "vertical-scroll", "window-placement",
 })
-# Allowlist tokens: the keywords, quoted strings, scheme origins, and bare
-# hosts (lenient about bare hosts — some servers send them). A lone "*" is
-# not valid in Permissions-Policy and fails this pattern.
+# Allowlist tokens: the keywords, the "*" wildcard, quoted strings,
+# scheme origins, and bare hosts (lenient about bare hosts — some servers
+# send them). A lone "*" is valid per the spec — it allows the feature for
+# every origin — so it passes here; sensitive features allowed to "*"
+# (camera, microphone, geolocation) get their own MED finding in
+# check_permissions_policy instead of passing silently.
 _PP_TOKEN_RE = re.compile(r"""^(?:
     self | src                        # keywords
+  | \*                                # wildcard: every origin
   | "[^"]*"                           # quoted string
   | (?:https?|wss?)://[^\s()/]+       # scheme-qualified origin
   | (?:\*\.?)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d+)?  # bare host
 )$""", re.IGNORECASE | re.VERBOSE)
 _PP_DIRECTIVE_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*=\s*\((.*)\)\s*$",
                               re.DOTALL)
+
+
+# Features whose use by every origin is a real exposure: a camera,
+# microphone, or precise location handed to any third-party script on the
+# page. Other features (fullscreen, autoplay, ...) are also broad with
+# "*", but the exposure is lower and the value is valid per spec, so only
+# these three are graded.
+_PP_SENSITIVE_FEATURES = frozenset({"camera", "microphone", "geolocation"})
 
 
 def _split_pp_directives(value: str) -> list[str]:
@@ -981,6 +993,18 @@ def check_permissions_policy(headers: Headers) -> list[Finding]:
                         "src, quoted strings, or origins such as "
                         "https://example.com."),
                 fix='Permissions-Policy: camera=(), microphone=(), geolocation=()',
+            ))
+        if feature in _PP_SENSITIVE_FEATURES and "*" in allowlist.split():
+            findings.append(Finding(
+                check="Permissions-Policy", header=name, status="weak",
+                severity="MED", score_delta=-5,
+                summary=(f"Permissions-Policy allows {feature!r} to every "
+                         "origin (*)."),
+                detail=(f"Any third-party script on the page may use the "
+                        f"{feature} — an embedded widget or a compromised "
+                        "dependency gets the same access as your own code. "
+                        "Restrict it to origins you trust."),
+                fix=f"Permissions-Policy: {feature}=(self)",
             ))
     if not findings:
         return [Finding(

@@ -74,7 +74,7 @@ def test_unbalanced_paren_is_malformed():
 
 
 def test_invalid_allowlist_token_is_low():
-    findings = _pp_findings(h("camera=(*)"))
+    findings = _pp_findings(h("camera=(foo!)"))
     low = [f for f in findings if f.severity == "LOW"]
     assert len(low) == 1
     assert "invalid allowlist token" in low[0].summary
