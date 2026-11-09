@@ -215,6 +215,7 @@ documentation-reserved domain):
 | COOP / COEP / CORP | Informational: missing cross-origin isolation headers. CORP `cross-origin` (LOW, -2) lets any origin load the resource no-cors, and unrecognized CORP values are ignored by browsers (LOW, -2) — use `same-site` (or `same-origin`) |
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
+| Cache-Control | `public` on a response that also sets cookies (MED, -5) — a shared cache may store the response and serve it, `Set-Cookie` included, to other users; use `private` (or `no-store`) instead. `public` on a cookie-free response stays silent |
 | Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie); session-ish cookies without either prefix get an INFO adoption nudge on HTTPS targets (no penalty) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP. `--max-redirects N` (default 5) caps the chain a fetch follows: a longer chain is a fetch error, not an audit of an intermediate hop |
@@ -258,7 +259,9 @@ biggest penalties first. Work this list top-down:
    missing `X-Content-Type-Options: nosniff`; TLS 1.1 still accepted;
    a redirect chain that ends on plain HTTP.
 6. **Quick hygiene wins (-5 / -4 / -3):** cookie `Secure` and `HttpOnly`
-   flags, `SameSite` values, SRI hashes on external scripts/styles
+   flags, `SameSite` values, `Cache-Control: public` on a response that
+   sets cookies (-5, MED — shared caches may serve the cookie-setting
+   response to other users), SRI hashes on external scripts/styles
    (-4 each), a `Referrer-Policy`, and a bare HSTS `preload` directive
    with no preload-list entry (-5, MED — false confidence: remove the
    token or actually submit the domain). These are one-line header changes.

@@ -1480,6 +1480,41 @@ def check_cookies(headers: Headers) -> list[Finding]:
     return findings
 
 
+def check_cache_control_cookies(headers: Headers) -> list[Finding]:
+    """Flag Cache-Control: public on a response that sets cookies.
+
+    ``public`` tells shared caches (CDNs, proxies) the response may be
+    stored and served to other users. Combined with Set-Cookie, the cached
+    copy can carry one user's session cookie to the next user — or a
+    shared cache can serve a private, cookie-setting response as if it
+    were a public asset. Responses that set cookies should be ``private``
+    (or ``no-store``). A ``public`` directive on a cookie-free response
+    (static assets) is fine and stays silent; so does a cookie-setting
+    response without ``public``.
+    """
+    directives: set[str] = set()
+    for value in all_values(headers, "cache-control"):
+        for part in value.split(","):
+            directives.add(part.strip().split("=", 1)[0].strip().lower())
+    if "public" not in directives:
+        return []
+    cookies = all_values(headers, "set-cookie")
+    if not cookies:
+        return []
+    noun = "cookie" if len(cookies) == 1 else "cookies"
+    return [Finding(
+        check="Cache-Control", header="Cache-Control", status="weak",
+        severity="MED", score_delta=-5,
+        summary="Cache-Control: public on a response that sets cookies.",
+        detail=(f"This response sets {len(cookies)} {noun} while telling "
+                "shared caches it is public: a CDN or proxy may store the "
+                "response and serve it — Set-Cookie included — to other "
+                "users, leaking session data across accounts."),
+        fix=("Cache-Control: private (or no-store) on responses that set "
+             "cookies"),
+    )]
+
+
 # Cipher-suite name fragments that indicate broken or obsolete crypto.
 # "DES" catches 3DES (DES-CBC3); no modern cipher name contains it otherwise.
 _WEAK_CIPHER_TOKENS = ("RC4", "DES", "NULL", "ANON", "EXPORT", "MD5")
@@ -1865,6 +1900,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_cross_origin_policies(headers)
     findings += check_disclosure(headers)
     findings += check_cookies(headers)
+    findings += check_cache_control_cookies(headers)
     findings += check_cookie_prefixes(headers)
     findings += check_cookie_prefix_adoption(headers, scheme)
     findings += check_conflicting_duplicates(headers)

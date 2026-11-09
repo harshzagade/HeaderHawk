@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Cache-Control `public` + Set-Cookie clash: a `public` directive on a
+  response that also sets cookies now gets a MED (-5) finding, since a
+  shared cache may store the response and serve it — `Set-Cookie`
+  included — to other users. The fix is `private` (or `no-store`) on
+  cookie-setting responses. `public` on a cookie-free response stays
+  silent, as does a cookie-setting response without `public`. Covered by
+  8 new tests in `tests/test_cache_control_cookies.py`.
 - X-Frame-Options `ALLOW-FROM` deprecation: the obsolete value was only
   ever honored by Internet Explorer and legacy Edge, so modern browsers
   ignore it entirely. It now gets its own LOW (-3) finding naming the
