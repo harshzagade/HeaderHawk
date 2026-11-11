@@ -409,6 +409,40 @@ def _csp_unsafe_inline_findings(csp: dict[str, list[str]]) -> list[Finding]:
     return findings
 
 
+def _csp_nonce_hash_findings(csp: dict[str, list[str]]) -> list[Finding]:
+    """Credit a CSP that allows inline scripts via nonce/hash, not 'unsafe-inline'.
+
+    Resolves the *effective* script-src the same way the unsafe-inline check
+    does (explicit directive, else default-src fallback). A nonce (``'nonce-…'``)
+    or hash (``'sha256-'`` / ``'sha384-'`` / ``'sha512-'``) lets the page run
+    exactly the inline scripts it intends, without opening the door to any
+    injected inline script the way ``'unsafe-inline'`` does — so it earns an
+    explicit OK pass naming the modern pattern. Silent when the policy has no
+    nonce/hash, and silent when ``'unsafe-inline'`` is also present (the MED
+    finding already covers that case; the nonce does not rescue it).
+    """
+    script_src = csp.get("script-src", csp.get("default-src", []))
+    if "'unsafe-inline'" in script_src:
+        return []
+    used = [s for s in script_src
+            if s.startswith("'nonce-") or s.startswith(("'sha256-", "'sha384-", "'sha512-"))]
+    if not used:
+        return []
+    kinds = sorted({"nonce" if s.startswith("'nonce-") else "hash" for s in used})
+    mechanism = " and a ".join(f"a {k}" for k in kinds)
+    return [Finding(
+        check="Content-Security-Policy", header="Content-Security-Policy",
+        status="pass", severity="OK", score_delta=0,
+        summary=(f"CSP script-src allows inline scripts via {mechanism} "
+                 f"instead of 'unsafe-inline' — the modern pattern."),
+        detail=("A nonce or hash lets the page run exactly the inline scripts "
+                "it intends, without letting any injected inline script run "
+                "the way 'unsafe-inline' does. Keep the nonce random per "
+                "response (or the hash pinned to the script) and the "
+                "protection holds."),
+    )]
+
+
 def check_csp(headers: Headers) -> list[Finding]:
     """Content-Security-Policy is the main XSS mitigation header."""
     values = all_values(headers, "content-security-policy")
@@ -426,6 +460,7 @@ def check_csp(headers: Headers) -> list[Finding]:
     csp = parse_csp("; ".join(values))
     findings: list[Finding] = []
     findings += _csp_unsafe_inline_findings(csp)
+    findings += _csp_nonce_hash_findings(csp)
     script_src = csp.get("script-src", csp.get("default-src", []))
     if "'unsafe-eval'" in script_src:
         findings.append(Finding(

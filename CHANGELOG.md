@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- CSP nonce/hash OK note: a `script-src` that allows inline scripts via a
+  nonce (`'nonce-…'`) or hash (`'sha256-'` / `'sha384-'` / `'sha512-'`)
+  instead of `'unsafe-inline'` now earns an explicit OK pass naming the
+  modern pattern, so hardened CSPs get visible credit. The effective
+  `script-src` is resolved the same way as the `unsafe-inline` check
+  (explicit directive, else `default-src` fallback); a nonce alongside
+  `'unsafe-inline'` earns no credit, since the MED finding already covers
+  that case. Covered by 8 new tests in `tests/test_csp_nonce_hash.py`.
 - Permissions-Policy sensitive-feature allowlist audit: a lone `*` is
   valid per the spec (it allows the feature for every origin), so it is
   no longer reported as an invalid allowlist token — but for the
