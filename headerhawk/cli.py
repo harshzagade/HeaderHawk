@@ -22,7 +22,7 @@ from .report import (_SEVERITY_ORDER, diff_reports, grade_index,
                       render_compare, render_compare_json,
                       render_explain, render_history_report, render_json,
                       render_summary_line, render_text, report_from_dict,
-                      worst_bulk_row)
+                      sort_bulk_rows, worst_bulk_row)
 from .sri import (count_external_resources, fetch_html)
 from .tls import probe_tls
 
@@ -178,6 +178,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "table. A failed probe shows '-' and never "
                              "penalizes the grade. Cannot be combined with "
                              "--no-tls.")
+    parser.add_argument("--sort", metavar="grade|score",
+                        choices=["grade", "score"],
+                        help="Bulk mode only: order the summary table by "
+                             "grade (worst first) or score (lowest first) "
+                             "instead of file order, for triage on long "
+                             "target lists. Error rows always sort last.")
     parser.add_argument("--compare", nargs=2, metavar=("URL_A", "URL_B"),
                         help="Compare two targets side by side: fetch URL_A and "
                              "URL_B, and show what changed (regressed, new, "
@@ -521,11 +527,13 @@ def run_bulk(args: argparse.Namespace) -> int:
                          sri=args.sri, tls=args.bulk_tls,
                          tls_timeout=args.tls_timeout,
                          max_redirects=args.max_redirects)
+    if args.sort:
+        rows = sort_bulk_rows(rows, args.sort)
     color = not args.no_color and sys.stdout.isatty()
     worst = worst_bulk_row(rows) if args.bulk_worst else None
-    output = (render_bulk_json(rows, worst=worst) if args.json
+    output = (render_bulk_json(rows, worst=worst, sort=args.sort) if args.json
               else render_bulk_table(rows, color=color,
-                                     show_tls=args.bulk_tls))
+                                     show_tls=args.bulk_tls, sort=args.sort))
     if args.bulk_worst and not args.json:
         output = output.rstrip() + "\n\n" + render_bulk_worst(worst, color=color)
 
@@ -765,6 +773,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bulk_tls and not args.bulk:
         print("error: --bulk-tls only applies with --bulk.",
+              file=sys.stderr)
+        return 2
+
+    if args.sort and not args.bulk:
+        print("error: --sort only applies with --bulk.",
               file=sys.stderr)
         return 2
 

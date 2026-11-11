@@ -95,6 +95,12 @@ headerhawk --bulk targets.txt --bulk-worst
 # probes show '-'; the probe never changes a grade)
 headerhawk --bulk targets.txt --bulk-tls
 
+# Bulk mode, worst first: order the summary table by grade (worst first) or
+# score (lowest first) instead of file order, for triage on long target lists
+# (unreachable targets always sort last; JSON reports carry a 'sorted_by' key)
+headerhawk --bulk targets.txt --sort grade
+headerhawk --bulk targets.txt --sort score
+
 # Compare two targets side by side (before/after hardening checks):
 # shows regressed, new, resolved, and improved findings
 headerhawk --compare http://staging.example.com https://example.com
@@ -133,7 +139,7 @@ Options: `--timeout SEC`, `--tls-timeout SEC`, `--max-redirects N`, `--user-agen
 `--fail-below GRADE`, `--fail-on SEVERITY`, `--only SEV`, `--explain SEV`,
 `--summary-line`,
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
-`--bulk-output DIR`,
+`--bulk-output DIR`, `--bulk-worst`, `--bulk-tls`, `--sort grade|score`,
 `--compare URL_A URL_B`, `--compare-headers FILE_A FILE_B`, `--diff-against FILE`,
 `--watch SEC`, `--watch-log FILE`, `--version`. Run
 `headerhawk --help` for the full list.

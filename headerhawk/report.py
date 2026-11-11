@@ -328,13 +328,35 @@ def report_from_dict(payload: dict) -> Report:
     )
 
 
+def sort_bulk_rows(rows: list[BulkResult], key: str) -> list[BulkResult]:
+    """Order bulk rows for triage instead of file order.
+
+    ``grade`` sorts worst grade first (ties break toward the lowest score);
+    ``score`` sorts lowest score first (ties break toward the worst grade).
+    Error rows carry no grade or score, so they always sort last, in file
+    order. Full ties keep file order (the sort is stable).
+    """
+    ok = [r for r in rows if not r.error]
+    failed = [r for r in rows if r.error]
+    if key == "grade":
+        ok.sort(key=lambda r: (-grade_index(r.grade), r.score))
+    elif key == "score":
+        ok.sort(key=lambda r: (r.score, -grade_index(r.grade)))
+    else:
+        raise ValueError(f"unknown bulk sort key: {key!r}")
+    return ok + failed
+
+
 def render_bulk_table(rows: list[BulkResult], color: bool = True,
-                      show_tls: bool = False) -> str:
+                      show_tls: bool = False,
+                      sort: str | None = None) -> str:
     """Summary grade table for bulk mode: one row per target.
 
     With ``show_tls=True`` (``--bulk-tls``) a TLS column shows each
     target's negotiated version, or ``-`` when the probe did not run,
-    the target is plain HTTP, or the probe failed.
+    the target is plain HTTP, or the probe failed. With ``sort`` set
+    (``--sort``), the header line names the sort order, since the rows
+    no longer follow file order.
     """
     lines: list[str] = []
     paint = lambda t, c: _paint(t, c, color)  # noqa: E731
@@ -349,7 +371,9 @@ def render_bulk_table(rows: list[BulkResult], color: bool = True,
     rule = "-" * len(header)
 
     noun = "target" if len(rows) == 1 else "targets"
-    lines.append(paint(f"HeaderHawk v{__version__} - bulk audit ({len(rows)} {noun})", "bold"))
+    sort_note = {"grade": ", sorted by grade, worst first",
+                 "score": ", sorted by score, lowest first"}.get(sort, "")
+    lines.append(paint(f"HeaderHawk v{__version__} - bulk audit ({len(rows)} {noun}{sort_note})", "bold"))
     lines.append(header)
     lines.append(rule)
 
@@ -413,18 +437,23 @@ def render_bulk_worst(row: BulkResult | None, color: bool = True) -> str:
 
 
 def render_bulk_json(rows: list[BulkResult],
-                     worst: BulkResult | None = None) -> str:
+                     worst: BulkResult | None = None,
+                     sort: str | None = None) -> str:
     """Machine-readable bulk report: one object per target.
 
     With ``worst`` (the ``worst_bulk_row()`` pick), a ``worst_target``
     object carries that target's summary plus its full report, so JSON
-    consumers get the same triage shortcut as the text appendix.
+    consumers get the same triage shortcut as the text appendix. With
+    ``sort`` set (``--sort``), a ``sorted_by`` key names the order, since
+    the rows no longer follow file order.
     """
     payload = {
         "tool": f"HeaderHawk v{__version__}",
         "target_count": len(rows),
         "targets": [r.to_dict() for r in rows],
     }
+    if sort is not None:
+        payload["sorted_by"] = sort
     if worst is not None and worst.report is not None:
         payload["worst_target"] = {
             "url": worst.url,

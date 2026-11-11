@@ -10,6 +10,14 @@
   (explicit directive, else `default-src` fallback); a nonce alongside
   `'unsafe-inline'` earns no credit, since the MED finding already covers
   that case. Covered by 8 new tests in `tests/test_csp_nonce_hash.py`.
+- `--sort grade|score` for bulk mode: `--bulk --sort grade` orders the
+  summary table worst grade first (ties break toward the lowest score) and
+  `--bulk --sort score` orders it lowest score first (ties break toward
+  the worst grade), for triage on long target lists. Unreachable targets
+  always sort last, in file order, and full ties keep file order. The
+  table header names the sort order and `--json` reports carry a
+  `sorted_by` key; `--sort` without `--bulk` fails fast. Covered by 13 new
+  tests in `tests/test_bulk_sort.py`.
 - Permissions-Policy sensitive-feature allowlist audit: a lone `*` is
   valid per the spec (it allows the feature for every origin), so it is
   no longer reported as an invalid allowlist token — but for the
