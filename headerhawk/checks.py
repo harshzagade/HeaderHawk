@@ -7,6 +7,7 @@ clamped to 0..100, then mapped to a letter grade.
 
 from __future__ import annotations
 
+import datetime
 import re
 from dataclasses import dataclass, field
 
@@ -18,6 +19,12 @@ from .tls import TLSInfo
 # ---------------------------------------------------------------------------
 
 import urllib.parse
+
+
+def _utc_now_iso() -> str:
+    """UTC timestamp in the same ``...Z`` ISO-8601 shape history.py uses."""
+    return datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass
@@ -55,6 +62,7 @@ class Report:
     status_code: int = 0
     redirects: int = 0
     elapsed_ms: int = 0
+    generated_at: str = ""  # UTC ISO-8601 audit time, e.g. "2026-11-12T14:48:11Z"
     scheme: str = ""
     score: int = 100
     grade: str = ""
@@ -84,6 +92,7 @@ class Report:
             "status_code": self.status_code,
             "redirects": self.redirects,
             "elapsed_ms": self.elapsed_ms,
+            "generated_at": self.generated_at,
             "scheme": self.scheme,
             "score": self.score,
             "grade": self.grade,
@@ -1981,6 +1990,9 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
         status_code=meta.get("status_code", 0),
         redirects=meta.get("redirects", 0),
         elapsed_ms=meta.get("elapsed_ms", 0),
+        # Stamp the audit run's time unless the caller pinned one (tests,
+        # replays); saved baselines pre-dating the field load as "".
+        generated_at=meta.get("generated_at") or _utc_now_iso(),
         scheme=scheme,
         score=score,
         grade=grade_for(score),

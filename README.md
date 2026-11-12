@@ -43,6 +43,8 @@ curl -sI https://example.com | headerhawk --json
 headerhawk example.com --json | jq .grade
 # Per-severity counts ride along, so CI parsers need not recount findings
 headerhawk example.com --json | jq .severity_counts
+# Every --json report is stamped with the audit run's UTC time
+headerhawk example.com --json | jq .generated_at   # "2026-11-12T14:48:11Z"
 
 # CI gate: exit 1 unless the grade is at least B
 headerhawk example.com --fail-below B

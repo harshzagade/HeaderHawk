@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- JSON `generated_at` timestamp: every `--json` report now carries the
+  audit run's UTC ISO-8601 time (`"2026-11-12T14:48:11Z"`, same shape as
+  the `--history` timestamps), so saved reports are datable without
+  filesystem metadata. `Report.generated_at` is stamped in `analyze()`
+  (callers may pin it via `meta`), carried by `to_dict()` into single,
+  compare, and bulk JSON, and round-tripped by `report_from_dict()` —
+  baselines saved before the field existed load with an empty stamp.
+  Covered by 6 new tests in `tests/test_generated_at.py`.
 - CSP nonce/hash OK note: a `script-src` that allows inline scripts via a
   nonce (`'nonce-…'`) or hash (`'sha256-'` / `'sha384-'` / `'sha512-'`)
   instead of `'unsafe-inline'` now earns an explicit OK pass naming the

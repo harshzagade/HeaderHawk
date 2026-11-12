@@ -318,6 +318,7 @@ def report_from_dict(payload: dict) -> Report:
         status_code=int(payload.get("status_code", 0) or 0),
         redirects=int(payload.get("redirects", 0) or 0),
         elapsed_ms=int(payload.get("elapsed_ms", 0) or 0),
+        generated_at=str(payload.get("generated_at", "") or ""),
         scheme=str(payload.get("scheme", "")),
         score=int(payload.get("score", 100) or 0),
         grade=str(payload.get("grade", "")),
