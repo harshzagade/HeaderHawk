@@ -36,6 +36,8 @@ python3 -m headerhawk.cli https://example.com
 headerhawk example.com
 
 # Fully offline: analyze headers saved earlier (curl -i, Burp, ZAP...)
+# A curl -i dump of a redirecting URL holds several response blocks —
+# only the final response is analyzed, earlier hops and bodies ignored
 headerhawk --headers response-headers.txt
 curl -sI https://example.com | headerhawk --json
 

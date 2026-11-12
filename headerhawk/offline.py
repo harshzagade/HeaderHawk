@@ -6,20 +6,64 @@ response headers and get the same scored report without touching the network.
 
 from __future__ import annotations
 
+import re
 import sys
 
 from .checks import Headers
+
+
+_STATUS_LINE_RE = re.compile(r"^HTTP/\d+(?:\.\d+)?\s+\d{3}\b")
+
+
+def _split_response_blocks(text: str) -> list[list[str]]:
+    """Split a raw dump into one header block per HTTP response.
+
+    A ``curl -i`` dump of a redirecting URL holds several responses back
+    to back: each starts with a status line and ends at the blank line
+    before its body. Blocks are returned in order; a dump with no status
+    line at all is a single block, so pasted header-only dumps parse
+    exactly as before. Body lines (after a response's blank line) are
+    never headers, even when they contain a colon.
+    """
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    in_response = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\r\n")
+        if _STATUS_LINE_RE.match(line):
+            if current or in_response:
+                blocks.append(current)
+            current = []
+            in_response = True
+            continue
+        if in_response and not line.strip():
+            # End of this response's headers; the body follows.
+            blocks.append(current)
+            current = []
+            in_response = False
+            continue
+        if in_response or not blocks:
+            current.append(line)
+        # Anything else is a response body line: ignored, never parsed.
+    if current or in_response:
+        blocks.append(current)
+    return blocks
 
 
 def parse_raw_headers(text: str) -> Headers:
     """Parse raw HTTP response headers into {lowercased-name: [values]}.
 
     Tolerates a leading status line ("HTTP/1.1 200 OK"), blank lines,
-    duplicate headers, and obsolete line folding.
+    duplicate headers, and obsolete line folding. When the dump holds
+    several responses (``curl -i`` on a redirecting URL), only the last
+    block — the final response — is parsed; earlier blocks' headers and
+    every response body are ignored.
     """
     headers: Headers = {}
     current: str | None = None
-    for raw_line in text.splitlines():
+    blocks = _split_response_blocks(text)
+    lines = blocks[-1] if blocks else []
+    for raw_line in lines:
         line = raw_line.rstrip("\r\n")
         if not line.strip():
             continue

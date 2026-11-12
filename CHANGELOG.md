@@ -10,6 +10,14 @@
   compare, and bulk JSON, and round-tripped by `report_from_dict()` —
   baselines saved before the field existed load with an empty stamp.
   Covered by 6 new tests in `tests/test_generated_at.py`.
+- Multi-response header dumps: `--headers` files from `curl -i` on a
+  redirecting URL contain several response blocks — only the last block
+  (the final response) is now parsed and analyzed, instead of merging
+  all blocks' headers. Each block starts at its status line and ends at
+  the blank line before its body, so body lines are never read as
+  headers; header-only dumps without a status line parse exactly as
+  before. Covered by 8 new tests in
+  `tests/test_multi_response_headers.py`.
 - CSP nonce/hash OK note: a `script-src` that allows inline scripts via a
   nonce (`'nonce-…'`) or hash (`'sha256-'` / `'sha384-'` / `'sha512-'`)
   instead of `'unsafe-inline'` now earns an explicit OK pass naming the
