@@ -2,6 +2,14 @@
 
 ## Unreleased
 ### Added
+- CSP/XFO framing conflict: an `X-Frame-Options: DENY` (or `SAMEORIGIN`)
+  value that disagrees with CSP `frame-ancestors` is now a LOW (-2)
+  finding naming the conflict — browsers honor CSP and silently ignore
+  XFO when both are present, so the XFO value is dead config that
+  misleads anyone reading the headers. Agreement stays silent (DENY
+  pairs with `frame-ancestors 'none'`, SAMEORIGIN with `'self'` or the
+  stricter `'none'`). Covered by 10 new tests in
+  `tests/test_framing_conflict.py`.
 - JSON `generated_at` timestamp: every `--json` report now carries the
   audit run's UTC ISO-8601 time (`"2026-11-12T14:48:11Z"`, same shape as
   the `--history` timestamps), so saved reports are datable without

@@ -746,6 +746,58 @@ def check_x_frame_options(headers: Headers, csp_directives: dict[str, list[str]]
     )]
 
 
+def check_framing_conflict(headers: Headers,
+                           csp_directives: dict[str, list[str]]
+                           ) -> list[Finding]:
+    """Flag an X-Frame-Options value that disagrees with CSP frame-ancestors.
+
+    When both headers are present, browsers honor CSP ``frame-ancestors``
+    and silently ignore X-Frame-Options — so a DENY next to
+    ``frame-ancestors 'self'`` (or a SAMEORIGIN next to a named host) means
+    the effective policy is the CSP one and the XFO value is dead config
+    that misleads anyone reading the headers. Agreement is silent: DENY
+    pairs with ``'none'``, SAMEORIGIN pairs with ``'self'`` (and with
+    ``'none'``, which is stricter than SAMEORIGIN, not looser). Non-standard
+    XFO values already have their own findings, so they are skipped here.
+    """
+    if "frame-ancestors" not in csp_directives:
+        return []
+    values = all_values(headers, "X-Frame-Options")
+    if len(values) != 1:
+        # Missing (covered by the XFO check) or duplicated: with two XFO
+        # values the effective value is ambiguous (browsers differ on
+        # first vs last), so no conflict verdict is reliable — the
+        # duplicate check owns that case.
+        return []
+    value = values[0]
+    xfo = value.strip().upper()
+    if xfo not in ("DENY", "SAMEORIGIN"):
+        return []
+    ancestors = csp_directives["frame-ancestors"]
+    conflict = False
+    if xfo == "DENY":
+        conflict = ancestors != ["'none'"]
+    else:  # SAMEORIGIN agrees with 'self' alone, or 'none' (stricter)
+        conflict = ancestors not in (["'self'"], ["'none'"])
+    if not conflict:
+        return []
+    matching = "'none'" if xfo == "DENY" else "'self'"
+    return [Finding(
+        check="X-Frame-Options", header="X-Frame-Options", status="weak",
+        severity="LOW", score_delta=-2,
+        summary=(f"X-Frame-Options: {xfo} conflicts with CSP frame-ancestors "
+                 f"{' '.join(ancestors)}: browsers honor CSP and ignore "
+                 f"X-Frame-Options."),
+        detail=("Browsers honor CSP frame-ancestors and silently ignore "
+                "X-Frame-Options when both are present, so the effective "
+                "framing policy is the CSP one and the XFO value is dead "
+                "config that misleads anyone reading the headers."),
+        fix=(f"Align the two: X-Frame-Options: {xfo} pairs with "
+             f"frame-ancestors {matching} — or drop X-Frame-Options and "
+             f"rely on frame-ancestors alone."),
+    )]
+
+
 def check_expect_ct(headers: Headers) -> list[Finding]:
     """Flag a present Expect-CT header as an obsolete no-op (INFO only).
 
@@ -1962,6 +2014,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_csp(headers)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)
+    findings += check_framing_conflict(headers, csp_directives)
     findings += check_expect_ct(headers)
     findings += check_referrer_policy(headers)
     findings += check_permissions_policy(headers)

@@ -44,7 +44,7 @@ def test_expect_ct_costs_no_points():
         content_security_policy=("default-src 'self'; script-src 'self'; "
                                  "object-src 'none'; base-uri 'self'; frame-ancestors 'self'"),
         x_content_type_options="nosniff",
-        x_frame_options="DENY",
+        x_frame_options="SAMEORIGIN",
         referrer_policy="strict-origin-when-cross-origin",
         permissions_policy="camera=(), microphone=(), geolocation=()",
         cross_origin_opener_policy="same-origin",
