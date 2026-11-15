@@ -179,7 +179,25 @@ def check_hsts(headers: Headers, scheme: str) -> list[Finding]:
         ))
         return findings
     max_age = int(m.group(1))
-    if max_age < 31536000:
+    if max_age == 0:
+        # max-age=0 is not a short policy: it is a deliberate opt-out that
+        # tells browsers to delete the stored HSTS policy, so the next
+        # visit can be downgraded to plain HTTP. It gets its own MED
+        # finding instead of the generic short-max-age one below, and the
+        # preload-eligibility nudge is skipped with it — preload with
+        # max-age=0 is moot, the policy is being deleted, not submitted.
+        findings.append(Finding(
+            check="Strict-Transport-Security", header=name, status="weak",
+            severity="MED", score_delta=-8,
+            summary="HSTS max-age=0 explicitly opts out: browsers delete the stored policy.",
+            detail=("max-age=0 is not a short policy, it is a deliberate "
+                    "opt-out telling browsers to forget HSTS for this host, "
+                    "so the next visit can be downgraded to plain HTTP. "
+                    "Either re-enable HSTS with a real max-age, or remove "
+                    "the header entirely if HSTS is intentionally off."),
+            fix="Strict-Transport-Security: max-age=63072000; includeSubDomains; preload",
+        ))
+    elif max_age < 31536000:
         days = max_age // 86400
         findings.append(Finding(
             check="Strict-Transport-Security", header=name, status="weak",
@@ -190,7 +208,7 @@ def check_hsts(headers: Headers, scheme: str) -> list[Finding]:
                     "recommended minimum; two years for preload."),
             fix="Strict-Transport-Security: max-age=63072000; includeSubDomains; preload",
         ))
-    if "preload" in value.lower() and max_age < 15768000:
+    if max_age > 0 and "preload" in value.lower() and max_age < 15768000:
         # A preload candidate with under 6 months of max-age is nowhere
         # near submission-ready: hstspreload.org requires at least one
         # year (31536000s). This is a separate LOW nudge on top of the

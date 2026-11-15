@@ -10,6 +10,12 @@
   pairs with `frame-ancestors 'none'`, SAMEORIGIN with `'self'` or the
   stricter `'none'`). Covered by 10 new tests in
   `tests/test_framing_conflict.py`.
+- HSTS `max-age=0` explicit opt-out: a `max-age=0` value is no longer
+  folded into the generic short-max-age finding — it is a deliberate
+  opt-out telling browsers to delete the stored HSTS policy, so it now
+  gets its own MED (-8) finding, and the preload-eligibility nudge is
+  skipped with it (preload with `max-age=0` is moot). Covered by 6 new
+  tests in `tests/test_hsts_max_age_zero.py`.
 - JSON `generated_at` timestamp: every `--json` report now carries the
   audit run's UTC ISO-8601 time (`"2026-11-12T14:48:11Z"`, same shape as
   the `--history` timestamps), so saved reports are datable without

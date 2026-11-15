@@ -216,7 +216,7 @@ documentation-reserved domain):
 | Check | What it looks for |
 |---|---|
 | Content-Security-Policy | Missing policy; per-directive `unsafe-inline` breakdown — `script-src` (MED, -8, incl. via `default-src` fallback) vs `style-src`-only (LOW, -3, scripts unaffected); a `script-src` that allows inline scripts via a nonce (`'nonce-…'`) or hash (`'sha256-'`/`'sha384-'`/`'sha512-'`) instead of `'unsafe-inline'` earns an explicit OK pass naming the modern pattern; `unsafe-eval`; wildcard or scheme-wide script sources; missing `default-src`, `object-src`, `base-uri`; violation reporting (`report-uri` / `report-to`) presence — dangling `report-to` flagged; `Report-Only` variant set without an enforcing policy (false confidence); Trusted Types adoption — missing `trusted-types` / `require-trusted-types-for 'script'` on enforcing policies is an INFO hardening note |
-| Strict-Transport-Security | Missing on HTTPS; short `max-age`; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence). A `preload` candidate with `max-age` under 6 months also gets a LOW nudge toward the 1-year preload minimum |
+| Strict-Transport-Security | Missing on HTTPS; short `max-age`; `max-age=0` is a deliberate opt-out (MED, -8) — browsers delete the stored policy; missing `includeSubDomains`; `preload` hint — and in live mode, whether the domain is actually on the hstspreload.org preload list (a bare directive without a list entry is false confidence). A `preload` candidate with `max-age` under 6 months also gets a LOW nudge toward the 1-year preload minimum |
 | X-Content-Type-Options | Must be `nosniff` |
 | X-Frame-Options | Missing (unless CSP `frame-ancestors` covers it); non-standard values; obsolete `ALLOW-FROM` (LOW, -3) — modern browsers ignore it, use CSP `frame-ancestors` instead; a DENY/SAMEORIGIN value that disagrees with CSP `frame-ancestors` (LOW, -2) — browsers honor CSP and ignore XFO, so the XFO value is dead config |
 | Expect-CT | Obsolete — Chrome removed enforcement in Jan 2025, so a present header is an INFO note (it does nothing now; safe to remove). Absent headers stay silent |
@@ -267,7 +267,8 @@ biggest penalties first. Work this list top-down:
    (only `style-src` allowing it is a LOW, -3 — inline styles cannot
    run scripts); `unsafe-eval` is a LOW (-3) hygiene item too; a
    missing `X-Content-Type-Options: nosniff`; TLS 1.1 still accepted;
-   a redirect chain that ends on plain HTTP.
+   a redirect chain that ends on plain HTTP; HSTS `max-age=0` (a
+   deliberate opt-out — browsers forget the policy).
 6. **Quick hygiene wins (-5 / -4 / -3):** cookie `Secure` and `HttpOnly`
    flags, `SameSite` values, `Cache-Control: public` on a response that
    sets cookies (-5, MED — shared caches may serve the cookie-setting
