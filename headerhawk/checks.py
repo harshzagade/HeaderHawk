@@ -1653,6 +1653,54 @@ def check_cache_control_cookies(headers: Headers) -> list[Finding]:
     )]
 
 
+def check_vary_star(headers: Headers) -> list[Finding]:
+    """Note a ``Vary: *`` response, which shared caches cannot reuse.
+
+    ``Vary: *`` tells a shared cache the response varies on request
+    headers the cache cannot enumerate, so the response is effectively
+    uncacheable: every request becomes a fresh origin hit. On its own
+    that is a performance INFO note. When the response also sets cookies
+    it is a LOW finding: the origin is paying a full round trip for
+    every request while still handing out Set-Cookie headers, which is
+    the shape of a misconfigured dynamic response that was meant to be
+    cached. The fix in both cases is to name the headers the response
+    actually varies on (``Accept-Encoding``, ``Accept-Language``) instead
+    of the wildcard.
+    """
+    vary_tokens: set[str] = set()
+    for value in all_values(headers, "vary"):
+        for part in value.split(","):
+            vary_tokens.add(part.strip().lower())
+    if "*" not in vary_tokens:
+        return []
+    cookies = all_values(headers, "set-cookie")
+    if not cookies:
+        return [Finding(
+            check="Vary", header="Vary", status="info",
+            severity="INFO", score_delta=0,
+            summary="Vary: * makes the response effectively uncacheable.",
+            detail=("This response uses 'Vary: *', which tells shared "
+                    "caches the response varies on headers they cannot "
+                    "enumerate — so no cache can reuse it for any "
+                    "subsequent request and every request hits the origin."),
+            fix=("Vary: Accept-Encoding, Accept-Language (list the "
+                 "headers the response actually varies on)"),
+        )]
+    noun = "cookie" if len(cookies) == 1 else "cookies"
+    return [Finding(
+        check="Vary", header="Vary", status="weak",
+        severity="LOW", score_delta=-2,
+        summary="Vary: * on a response that sets cookies.",
+        detail=(f"This response sets {len(cookies)} {noun} while using "
+                "'Vary: *', which makes it uncacheable by shared caches: "
+                "every request is a fresh origin hit carrying Set-Cookie, "
+                "so the response pays the cost of being dynamic without "
+                "any of the caching benefit."),
+        fix=("Vary: Accept-Encoding, Accept-Language (list the headers "
+             "the response actually varies on)"),
+    )]
+
+
 # Cipher-suite name fragments that indicate broken or obsolete crypto.
 # "DES" catches 3DES (DES-CBC3); no modern cipher name contains it otherwise.
 _WEAK_CIPHER_TOKENS = ("RC4", "DES", "NULL", "ANON", "EXPORT", "MD5")
@@ -2040,6 +2088,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_disclosure(headers)
     findings += check_cookies(headers)
     findings += check_cache_control_cookies(headers)
+    findings += check_vary_star(headers)
     findings += check_cookie_prefixes(headers)
     findings += check_cookie_prefix_adoption(headers, scheme)
     findings += check_conflicting_duplicates(headers)

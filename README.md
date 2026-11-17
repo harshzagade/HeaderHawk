@@ -226,6 +226,7 @@ documentation-reserved domain):
 | Information disclosure | Version strings in `Server`, `X-Powered-By`, `X-AspNet-*` |
 | Cookie flags | Every `Set-Cookie` audited for `Secure`, `HttpOnly`, and `SameSite` (missing flags, `SameSite=None` without `Secure`, unrecognized values) |
 | Cache-Control | `public` on a response that also sets cookies (MED, -5) — a shared cache may store the response and serve it, `Set-Cookie` included, to other users; use `private` (or `no-store`) instead. `public` on a cookie-free response stays silent |
+| Vary | `Vary: *` makes the response effectively uncacheable by shared caches — an INFO note on its own, and a LOW (-2) when the response also sets cookies (every request is a fresh origin hit carrying `Set-Cookie`); list the headers the response actually varies on (`Accept-Encoding`, `Accept-Language`) instead |
 | Cookie name prefixes | `__Secure-` cookies without `Secure` (MED); `__Host-` cookies missing `Secure`, setting `Domain`, or not scoped to `Path=/` (HIGH each — browsers silently drop the cookie); session-ish cookies without either prefix get an INFO adoption nudge on HTTPS targets (no penalty) |
 | Duplicate headers | Same header sent 2+ times: conflicting values flagged (browser honors first vs. last inconsistently); identical duplicates noted as informational |
 | Redirect chain | HTTP→HTTPS upgrades (good), HTTPS→HTTP downgrades (HIGH), chains longer than 3 redirects, final response still on plain HTTP. `--max-redirects N` (default 5) caps the chain a fetch follows: a longer chain is a fetch error, not an audit of an intermediate hop |
@@ -284,7 +285,8 @@ biggest penalties first. Work this list top-down:
    CORP value of `cross-origin` or an unrecognized value (same reason —
    the header does nothing as sent), and an X-Frame-Options value that
    disagrees with CSP `frame-ancestors` (browsers honor CSP, so the XFO
-   value is dead config).
+   value is dead config), and a `Vary: *` response that also sets cookies
+   (the origin pays a full round trip per request for no caching benefit).
    Small effort, last few points.
 
 INFO and OK findings cost nothing — they are hardening notes and
