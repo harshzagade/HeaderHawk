@@ -2,6 +2,19 @@
 
 ## Unreleased
 ### Added
+- `Vary: *` cache-busting note: a response with `Vary: *` is effectively
+  uncacheable by shared caches — an INFO note on its own, escalated to a
+  LOW (-2) when the response also sets cookies, since every request then
+  becomes a fresh origin hit carrying `Set-Cookie`. The fix names the
+  headers the response actually varies on instead of the wildcard.
+  Covered by 8 new tests in `tests/test_vary_star.py`.
+- CSP `upgrade-insecure-requests` missing note: on HTTPS targets with an
+  enforcing CSP that lacks the directive, an INFO hardening note — it is
+  the one-line fix that auto-upgrades `http://` subresources so
+  mixed-content stragglers stop being blocked or downgraded. Silent with
+  no CSP (the missing-policy HIGH owns that case), on plain HTTP, and
+  when only a report-only policy is present. Covered by 6 new tests in
+  `tests/test_csp_upgrade_insecure_requests.py`.
 - CSP/XFO framing conflict: an `X-Frame-Options: DENY` (or `SAMEORIGIN`)
   value that disagrees with CSP `frame-ancestors` is now a LOW (-2)
   finding naming the conflict — browsers honor CSP and silently ignore

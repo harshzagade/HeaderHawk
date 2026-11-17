@@ -546,6 +546,32 @@ def check_csp(headers: Headers) -> list[Finding]:
     return findings
 
 
+def check_csp_upgrade_insecure_requests(
+        csp: dict[str, list[str]], scheme: str) -> list[Finding]:
+    """Note a missing ``upgrade-insecure-requests`` CSP directive on HTTPS.
+
+    The directive is the one-line fix for mixed-content stragglers: the
+    browser rewrites ``http://`` subresources to ``https://`` before
+    fetching, instead of blocking them (active content) or dropping the
+    padlock (passive content). It only applies on HTTPS targets with an
+    enforcing policy — with no CSP at all the missing-policy HIGH finding
+    owns the case, and on plain HTTP there is nothing to upgrade to.
+    """
+    if not csp or scheme != "https" or "upgrade-insecure-requests" in csp:
+        return []
+    return [Finding(
+        check="Content-Security-Policy", header="Content-Security-Policy",
+        status="info", severity="INFO", score_delta=0,
+        summary="CSP has no upgrade-insecure-requests directive.",
+        detail=("The 'upgrade-insecure-requests' directive tells the "
+                "browser to rewrite http:// subresources to https:// "
+                "before fetching, so mixed-content stragglers are fixed "
+                "at the source instead of being blocked (scripts, "
+                "styles) or killing the padlock (images)."),
+        fix="Add upgrade-insecure-requests to the policy.",
+    )]
+
+
 def check_csp_reporting(headers: Headers, csp: dict[str, list[str]]) -> list[Finding]:
     """CSP violation-reporting: report-uri / report-to presence check.
 
@@ -2078,6 +2104,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
                                    meta.get("hsts_preload", "unchecked"))
     findings += check_security_txt(meta.get("security_txt", "unchecked"))
     findings += check_csp(headers)
+    findings += check_csp_upgrade_insecure_requests(csp_directives, scheme)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)
     findings += check_framing_conflict(headers, csp_directives)
