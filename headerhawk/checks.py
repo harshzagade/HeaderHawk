@@ -1188,15 +1188,39 @@ def check_cross_origin_policies(headers: Headers) -> list[Finding]:
                    "prerequisite for crossOriginIsolated (SharedArrayBuffer).",
             fix="Cross-Origin-Embedder-Policy: require-corp",
         ))
+    elif coep.strip().lower() not in ("require-corp", "credentialless"):
+        # credentialless is the valid modern alternative to require-corp: the
+        # page loads cross-origin no-cors resources without credentials, so
+        # subresource loads stop depending on CORP — but any load that must
+        # carry credentials still needs CORP on the resource.
+        findings.append(Finding(
+            check="Cross-Origin-Embedder-Policy",
+            header="Cross-Origin-Embedder-Policy", status="weak",
+            severity="LOW", score_delta=-2,
+            summary=f"COEP has an unrecognized value: {coep!r}.",
+            detail="Browsers ignore COEP values they do not recognize, so "
+                   "the header provides no protection at all. Use "
+                   "require-corp, or credentialless to load cross-origin "
+                   "no-cors resources without credentials.",
+            fix="Cross-Origin-Embedder-Policy: require-corp",
+        ))
+    credentialless = coep is not None and coep.strip().lower() == "credentialless"
     corp = get(headers, "cross-origin-resource-policy")
     if corp is None:
+        detail = ("CORP: same-site stops other sites from loading your "
+                  "resources no-cors (Spectre / resource-theft mitigation).")
+        if credentialless:
+            detail += (" COEP: credentialless only changes how this page "
+                       "loads other sites' resources (without credentials) — "
+                       "it does not protect this response, and any "
+                       "cross-origin load that needs credentials still "
+                       "requires CORP on the resource.")
         findings.append(Finding(
             check="Cross-Origin-Resource-Policy",
             header="Cross-Origin-Resource-Policy", status="info",
             severity="INFO", score_delta=0,
             summary="Cross-Origin-Resource-Policy is not set.",
-            detail="CORP: same-site stops other sites from loading your "
-                   "resources no-cors (Spectre / resource-theft mitigation).",
+            detail=detail,
             fix="Cross-Origin-Resource-Policy: same-site",
         ))
     elif corp.strip().lower() == "cross-origin":

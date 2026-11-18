@@ -2,6 +2,15 @@
 
 ## Unreleased
 ### Added
+- COEP `credentialless` value support: `credentialless` is now accepted as
+  a valid modern COEP value alongside `require-corp` — the page loads
+  cross-origin no-cors resources without credentials, so its subresource
+  loads stop depending on CORP, while any load that must carry credentials
+  still needs CORP on the resource. Unrecognized COEP values are now
+  flagged LOW (-2), mirroring the CORP branch, since browsers ignore them.
+  A missing CORP header next to `credentialless` notes the implication in
+  its INFO detail instead of the generic wording. Covered by 8 new tests
+  in `tests/test_coep_credentialless.py`.
 - `Vary: *` cache-busting note: a response with `Vary: *` is effectively
   uncacheable by shared caches — an INFO note on its own, escalated to a
   LOW (-2) when the response also sets cookies, since every request then
