@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Strict-CSP OK pass: a CSP with `default-src 'none'` plus a nonce/hash
+  `script-src` and no `'unsafe-inline'` in any directive earns its own
+  explicit OK pass naming the strict pattern, mirroring the nonce/hash
+  credit (which it replaces for such policies, so the report does not
+  credit the same nonce twice). A `style-src 'unsafe-inline'` disqualifies
+  it, as does a `default-src` other than `'none'` or a `script-src` with
+  no nonce/hash. Covered by 9 new tests in `tests/test_csp_strict.py`.
 - COEP `credentialless` value support: `credentialless` is now accepted as
   a valid modern COEP value alongside `require-corp` — the page loads
   cross-origin no-cors resources without credentials, so its subresource
