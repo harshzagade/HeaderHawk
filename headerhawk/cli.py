@@ -226,6 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "(baseline, change alerts, fetch gaps, stop) to "
                              "FILE, so overnight runs leave an audit trail. "
                              "Requires --watch.")
+    parser.add_argument("--fail-on-change", action="store_true",
+                        help="Watch mode only: exit 1 as soon as a re-audit "
+                             "detects a grade or finding change, so CI can "
+                             "fail a deploy that regressed headers instead "
+                             "of only logging the alert. Requires --watch.")
     parser.add_argument("--sri", action="store_true",
                         help="Subresource Integrity audit: fetch the page HTML "
                              "and flag external scripts/stylesheets loading "
@@ -469,6 +474,12 @@ def run_watch(args: argparse.Namespace, sleep=time.sleep) -> int:
                              f"{prev.grade} -> {report.grade} "
                              f"(score {prev.score} -> {report.score}, "
                              f"{delta:+d}); {len(changes)} finding(s) differ")
+                        if args.fail_on_change:
+                            sys.stderr.write(
+                                "Change detected in watch mode "
+                                "(--fail-on-change): exiting 1.\n")
+                            _log("FAIL-ON-CHANGE: exiting 1")
+                            return 1
                     else:
                         print(f"[{_now()}] no change: grade {report.grade} "
                               f"(score {report.score}/100, audit #{audits}).")
@@ -840,6 +851,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.watch_log and args.watch is None:
         print("error: --watch-log only applies in --watch mode.",
+              file=sys.stderr)
+        return 2
+
+    if args.fail_on_change and args.watch is None:
+        print("error: --fail-on-change only applies in --watch mode.",
               file=sys.stderr)
         return 2
 

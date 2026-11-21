@@ -128,6 +128,10 @@ headerhawk example.com --watch 60
 # fetch gaps, and stop events to a log file (overnight runs)
 headerhawk example.com --watch 60 --watch-log watch.log
 
+# Watch mode as a CI gate: exit 1 as soon as a re-audit detects a grade or
+# finding change, so a deploy that regressed headers fails the job
+headerhawk example.com --watch 60 --fail-on-change
+
 # Subresource Integrity audit: fetch the page HTML and flag external
 # scripts/stylesheets loading without an integrity= hash (MED, -4 each)
 headerhawk example.com --sri
@@ -145,7 +149,7 @@ Options: `--timeout SEC`, `--tls-timeout SEC`, `--max-redirects N`, `--user-agen
 `--sri`, `--history FILE`, `--history-report FILE`, `--bulk FILE`,
 `--bulk-output DIR`, `--bulk-worst`, `--bulk-tls`, `--sort grade|score`,
 `--compare URL_A URL_B`, `--compare-headers FILE_A FILE_B`, `--diff-against FILE`,
-`--watch SEC`, `--watch-log FILE`, `--version`. Run
+`--watch SEC`, `--watch-log FILE`, `--fail-on-change`, `--version`. Run
 `headerhawk --help` for the full list.
 
 ## Sample output

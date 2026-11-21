@@ -244,6 +244,43 @@ def test_watch_log_stays_silent_on_change_when_none(monkeypatch, tmp_path):
     assert "STOP after 3 audit(s)" in log_text
 
 
+def test_watch_fail_on_change_exits_1_on_change(monkeypatch, tmp_path,
+                                                 capsys):
+    good = analyze(SECURE, scheme="https")
+    bad = analyze(EMPTY, scheme="https")
+    log = tmp_path / "watch.log"
+    monkeypatch.setattr(cli, "_audit_one", _stub_audit([good, bad]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--fail-on-change",
+               "--watch-log", str(log), "--no-color"]),
+        sleep=_Clock(stop_after=2))
+    assert code == 1
+    out = capsys.readouterr()
+    assert "CHANGE DETECTED" in out.out
+    assert f"{good.grade} -> {bad.grade}" in out.out
+    assert "exiting 1" in out.err
+    assert "Stopped watching" not in out.out  # exits at once, no Ctrl-C path
+    assert "FAIL-ON-CHANGE: exiting 1" in _read_log(log)
+
+
+def test_watch_fail_on_change_stays_zero_when_nothing_changes(monkeypatch,
+                                                              capsys):
+    report = analyze(SECURE, scheme="https")
+    monkeypatch.setattr(cli, "_audit_one",
+                        _stub_audit([report, report, report]))
+    code = cli.run_watch(
+        _args(["example.com", "--watch", "1", "--fail-on-change",
+               "--no-color"]),
+        sleep=_Clock(stop_after=3))
+    assert code == 0
+    assert "no change" in capsys.readouterr().out
+
+
+def test_fail_on_change_without_watch_is_rejected(capsys):
+    assert cli.main(["example.com", "--fail-on-change"]) == 2
+    assert "--fail-on-change only applies" in capsys.readouterr().err
+
+
 def test_watch_log_records_fetch_gap(monkeypatch, tmp_path):
     report = analyze(SECURE, scheme="https")
     log = tmp_path / "watch.log"

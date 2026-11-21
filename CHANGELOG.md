@@ -2,6 +2,12 @@
 
 ## Unreleased
 ### Added
+- `--watch --fail-on-change`: exit 1 as soon as a watch re-audit detects a
+  grade or finding change, so CI can fail a deploy that regressed headers
+  instead of only logging the alert — the change alert and diff still print
+  first, and the event is logged to `--watch-log` when one is set. Without
+  `--watch` the flag is rejected (exit 2). Covered by 3 new tests in
+  `tests/test_watch.py`.
 - Strict-CSP OK pass: a CSP with `default-src 'none'` plus a nonce/hash
   `script-src` and no `'unsafe-inline'` in any directive earns its own
   explicit OK pass naming the strict pattern, mirroring the nonce/hash
