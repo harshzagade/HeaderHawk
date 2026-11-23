@@ -1707,6 +1707,46 @@ def check_cookies(headers: Headers) -> list[Finding]:
     return findings
 
 
+def check_cookie_partitioned(headers: Headers, scheme: str) -> list[Finding]:
+    """Note SameSite=None cookies missing the Partitioned attribute.
+
+    Chrome's CHIPS rollout increasingly restricts unpartitioned
+    third-party cookies: a cookie that must be sent cross-site
+    (``SameSite=None``) without ``Partitioned`` may stop working in
+    embedded contexts. The ``Partitioned`` attribute opts the cookie into
+    partitioned storage, so it keeps working per top-level site. This is
+    an INFO note only — never graded — and only applies on HTTPS targets:
+    third-party cookies are an HTTPS concept, and on plain HTTP the
+    missing-Secure finding already owns the cookie. A cookie with
+    ``SameSite=None`` but no ``Secure`` still gets the note: once Secure
+    is added (the fix for the MED finding), Partitioned is the next step.
+    """
+    if scheme != "https":
+        return []
+    findings: list[Finding] = []
+    for raw in all_values(headers, "set-cookie"):
+        name, attrs = _parse_set_cookie(raw)
+        if (attrs.get("samesite", "").lower() == "none"
+                and "partitioned" not in attrs):
+            findings.append(Finding(
+                check="Cookie flags", header="Set-Cookie", status="info",
+                severity="INFO", score_delta=0,
+                summary=(f"Cookie {name!r} allows cross-site sending but "
+                         "has no Partitioned attribute."),
+                detail=("This cookie is set with SameSite=None, so browsers "
+                        "send it in cross-site (third-party) contexts — and "
+                        "Chrome is phasing out unpartitioned third-party "
+                        "cookies. Without Partitioned, the cookie may be "
+                        "blocked or dropped in embedded contexts; with it, "
+                        "the cookie is stored per top-level site (CHIPS) "
+                        "and keeps working where it is embedded."),
+                fix=(f"Add the Partitioned attribute (alongside Secure, "
+                     f"which SameSite=None requires): Set-Cookie: {name}=...; "
+                     "Secure; SameSite=None; Partitioned"),
+            ))
+    return findings
+
+
 def check_cache_control_cookies(headers: Headers) -> list[Finding]:
     """Flag Cache-Control: public on a response that sets cookies.
 
@@ -2179,6 +2219,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_cross_origin_policies(headers)
     findings += check_disclosure(headers)
     findings += check_cookies(headers)
+    findings += check_cookie_partitioned(headers, scheme)
     findings += check_cache_control_cookies(headers)
     findings += check_vary_star(headers)
     findings += check_cookie_prefixes(headers)

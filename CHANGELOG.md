@@ -9,6 +9,12 @@
   `crossorigin` check (LOW, -2) covers them too. Preloads of fonts, images,
   or `fetch` (and preloads with no `as`) stay out of the SRI audit's scope.
   Covered by 8 new tests in `tests/test_sri.py`.
+- Cookie `Partitioned` attribute note: on HTTPS targets, a cookie set with
+  `SameSite=None` but no `Partitioned` attribute gets an INFO note (no
+  penalty) — Chrome's CHIPS rollout increasingly restricts unpartitioned
+  third-party cookies, so the note points at opting into partitioned
+  storage. Silent on plain HTTP and for `Lax`/`Strict`/absent `SameSite`.
+  Covered by 10 new tests in `tests/test_cookie_partitioned.py`.
 - `--watch --fail-on-change`: exit 1 as soon as a watch re-audit detects a
   grade or finding change, so CI can fail a deploy that regressed headers
   instead of only logging the alert — the change alert and diff still print
