@@ -354,3 +354,87 @@ def test_analyze_wires_sri_crossorigin():
             if f.check == "Subresource Integrity" and "crossorigin" in f.summary]
     assert len(cors) == 2
     assert all(f.severity == "LOW" for f in cors)
+
+
+# ---------------------------------------------------------------------------
+# SRI preload audit (<link rel="preload" as="script|style">)
+# ---------------------------------------------------------------------------
+
+HTML_PRELOAD = """<html><head>
+<link rel="preload" as="script" href="https://cdn.example.com/early.js">
+<link rel="preload" as="style" href="https://cdn.example.com/early.css">
+<link rel="preload" as="script" href="https://cdn.example.com/safe.js"
+      integrity="sha384-abc" crossorigin="anonymous">
+<link rel="preload" as="font" href="https://cdn.example.com/font.woff2">
+<link rel="preload" as="image" href="https://cdn.example.com/hero.png">
+<link rel="preload" href="https://cdn.example.com/no-as.js">
+</head></html>"""
+
+
+def test_preload_script_and_style_without_integrity_are_flagged():
+    found = find_unprotected_resources(HTML_PRELOAD)
+    urls = {(r.tag, r.url, r.preload) for r in found}
+    assert urls == {
+        ("link", "https://cdn.example.com/early.js", True),
+        ("link", "https://cdn.example.com/early.css", True),
+    }
+
+
+def test_preload_with_integrity_counts_as_protected():
+    assert count_protected_resources(HTML_PRELOAD) == 1
+
+
+def test_preload_font_image_and_missing_as_are_out_of_scope():
+    found = find_unprotected_resources(
+        '<link rel="preload" as="font" href="https://x.example.com/f.woff2">'
+        '<link rel="preload" as="image" href="https://x.example.com/i.png">'
+        '<link rel="preload" as="fetch" href="https://x.example.com/d.json">'
+        '<link rel="preload" href="https://x.example.com/no-as.js">')
+    assert found == []
+
+
+def test_preload_rel_is_case_insensitive_and_as_is_case_insensitive():
+    found = find_unprotected_resources(
+        '<link REL="PRELOAD" AS="SCRIPT" href="https://x.example.com/a.js">')
+    assert [(r.url, r.preload) for r in found] == [
+        ("https://x.example.com/a.js", True)]
+
+
+def test_check_sri_names_preload_in_summary():
+    findings = check_sri(HTML_PRELOAD)
+    assert len(findings) == 2
+    for f in findings:
+        assert f.severity == "MED" and f.score_delta == -4
+        assert "preloaded link" in f.summary
+
+
+def test_preload_missing_crossorigin_is_low_and_named():
+    (f,) = check_sri_crossorigin(
+        '<link rel="preload" as="script" href="https://x.example.com/a.js" '
+        'integrity="sha384-z">')
+    assert f.severity == "LOW" and f.score_delta == -2
+    assert "preloaded link" in f.summary
+
+
+def test_preload_http_url_is_active_mixed_content():
+    mixed = find_mixed_content(
+        '<link rel="preload" as="script" href="http://x.example.com/a.js">')
+    assert len(mixed) == 1 and mixed[0].preload is True
+    (f,) = check_mixed_content(
+        '<link rel="preload" as="script" href="http://x.example.com/a.js">',
+        "https")
+    assert f.severity == "HIGH" and "active" in f.detail
+
+
+def test_analyze_wires_preload_sri_and_score():
+    report = analyze({}, scheme="https", meta={
+        "url": "https://example.com",
+        "sri_html": HTML_PRELOAD,
+        "sri_seen": 3,
+    })
+    sri = [f for f in report.findings if f.check == "Subresource Integrity"]
+    # 2 MED unprotected preloads + the crossorigin OK pass for the pinned one.
+    assert len(sri) == 3
+    assert sum(1 for f in sri if f.severity == "MED") == 2
+    assert sum(f.score_delta for f in sri) == -8
+    assert report.sri_seen == 3

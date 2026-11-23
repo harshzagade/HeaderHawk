@@ -27,10 +27,14 @@ class Subresource:
     url: str          # absolute URL as written in the HTML
     has_integrity: bool
     has_crossorigin: bool = False
+    # True for <link rel="preload" as="script|style">: the resource is
+    # fetched early, like the script/stylesheet it stands in for.
+    preload: bool = False
 
 
 class _SubresourceParser(HTMLParser):
-    """Collect external <script src>, <link rel=stylesheet href>, and <img src>."""
+    """Collect external <script src>, <link rel=stylesheet href>,
+    <link rel="preload" as="script|style" href>, and <img src>."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -48,14 +52,23 @@ class _SubresourceParser(HTMLParser):
                 ))
         elif tag == "link":
             rel = attrs_map.get("rel", "").lower()
-            # rel is space-separated ("stylesheet", "preload stylesheet"...).
-            if "stylesheet" in rel.split():
+            rel_values = rel.split()
+            # A stylesheet link, or a preload of a script/stylesheet: both
+            # are SRI-auditable — a preload fetches early, like the tag it
+            # stands in for. Preloads of fonts/images/fetch stay out: SRI
+            # does not apply to images, and font/fetch preloads are outside
+            # this audit's scope (a preload with no `as` is skipped too).
+            is_preload = "preload" in rel_values
+            as_value = attrs_map.get("as", "").strip().lower()
+            if ("stylesheet" in rel_values
+                    or (is_preload and as_value in ("script", "style"))):
                 href = attrs_map.get("href", "").strip()
                 if href:
                     self.resources.append(Subresource(
                         tag="link", url=href,
                         has_integrity=bool(attrs_map.get("integrity", "").strip()),
                         has_crossorigin="crossorigin" in attrs_map,
+                        preload=is_preload,
                     ))
         elif tag == "img":
             # Images are only relevant for the mixed-content check (SRI is
@@ -86,7 +99,8 @@ def find_unprotected_resources(html: str) -> list[Subresource]:
     list means every external script/stylesheet is SRI-protected (or there
     are none to check); ``protected`` counts the SRI-covered ones for the
     OK-pass summary. ``<img>`` tags are out of SRI scope and are ignored
-    here (they belong to the mixed-content check).
+    here (they belong to the mixed-content check); so are ``<link
+    rel="preload">`` tags whose ``as`` is not ``script``/``style``.
     """
     parser = _SubresourceParser()
     parser.feed(html)

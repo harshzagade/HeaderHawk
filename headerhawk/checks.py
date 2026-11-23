@@ -1921,10 +1921,11 @@ def check_sri(html: str | None) -> list[Finding]:
     unprotected = find_unprotected_resources(html)
     findings: list[Finding] = []
     for resource in unprotected:
+        kind = "preloaded link" if resource.preload else resource.tag
         findings.append(Finding(
             check="Subresource Integrity", header="(page HTML)",
             status="weak", severity="MED", score_delta=-4,
-            summary=(f"External {resource.tag} loads without Subresource "
+            summary=(f"External {kind} loads without Subresource "
                      f"Integrity: {resource.url}"),
             detail=("Without an integrity= hash, the browser runs whatever "
                     "the third party serves. If the CDN account is "
@@ -2027,11 +2028,12 @@ def check_sri_crossorigin(html: str | None) -> list[Finding]:
     missing = find_missing_crossorigin(html)
     findings: list[Finding] = []
     for resource in missing:
+        kind = "preloaded link" if resource.preload else resource.tag
         findings.append(Finding(
             check="Subresource Integrity", header="(page HTML)",
             status="weak", severity="LOW", score_delta=-2,
             summary=(f"SRI hash present but crossorigin= missing: "
-                     f"{resource.tag} {resource.url}"),
+                     f"{kind} {resource.url}"),
             detail=("The integrity= hash pins this cross-origin file, but "
                     "without a crossorigin attribute the browser fetches it "
                     "without CORS. The response is opaque, so the hash can "

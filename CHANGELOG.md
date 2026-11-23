@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- `--sri` preload audit: `<link rel="preload" as="script">` / `as="style"`
+  resources are now included in the missing-integrity audit (MED, -4 each)
+  alongside script/stylesheet tags, since they fetch early like the tags
+  they stand in for — findings name them as "preloaded link", and the
+  `crossorigin` check (LOW, -2) covers them too. Preloads of fonts, images,
+  or `fetch` (and preloads with no `as`) stay out of the SRI audit's scope.
+  Covered by 8 new tests in `tests/test_sri.py`.
 - `--watch --fail-on-change`: exit 1 as soon as a watch re-audit detects a
   grade or finding change, so CI can fail a deploy that regressed headers
   instead of only logging the alert — the change alert and diff still print
