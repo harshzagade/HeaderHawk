@@ -151,6 +151,23 @@ def check_hsts(headers: Headers, scheme: str) -> list[Finding]:
     """Strict-Transport-Security forces HTTPS and kills SSL-stripping."""
     name = "Strict-Transport-Security"
     if scheme != "https":
+        if get(headers, name) is not None:
+            # An HSTS header on a plain-HTTP response is dead config: RFC
+            # 6797 says browsers only honor HSTS on HTTPS responses, so the
+            # header does nothing here — it is not even stored. It usually
+            # means the header is set globally (e.g. on a load balancer)
+            # instead of on the HTTPS virtual host, where it belongs.
+            return [Finding(
+                check="Strict-Transport-Security", header=name, status="info",
+                severity="INFO", score_delta=0,
+                summary="Strict-Transport-Security sent over plain HTTP is ignored by browsers.",
+                detail=("HSTS is only honored on HTTPS responses (RFC 6797): "
+                        "a browser receiving this header over plain HTTP "
+                        "discards it without storing anything, so the "
+                        "response carries no HSTS protection at all."),
+                fix=("Serve the HSTS header on the HTTPS response "
+                     "(and redirect HTTP to HTTPS)."),
+            )]
         return [Finding(
             check="Strict-Transport-Security", header=name, status="info",
             severity="INFO", score_delta=0,

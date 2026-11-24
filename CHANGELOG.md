@@ -9,6 +9,11 @@
   Groups referenced by CSP `report-to` or NEL earn an OK pass; a legacy
   `Report-To` header alone does not count as a reference. Covered by 11 new
   tests in `tests/test_reporting_endpoints.py`.
+- HSTS sent over plain HTTP is ignored: a `Strict-Transport-Security`
+  header on a plain-HTTP response now gets its own INFO note (no penalty)
+  naming that browsers discard it — RFC 6797 honors HSTS only over HTTPS —
+  instead of the generic "Not applicable" note. The header-less HTTP case is
+  unchanged. Covered by 4 new tests in `tests/test_hsts_over_http.py`.
 - `--sri` preload audit: `<link rel="preload" as="script">` / `as="style"`
   resources are now included in the missing-integrity audit (MED, -4 each)
   alongside script/stylesheet tags, since they fetch early like the tags
