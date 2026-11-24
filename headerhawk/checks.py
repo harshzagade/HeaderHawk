@@ -8,6 +8,7 @@ clamped to 0..100, then mapped to a letter grade.
 from __future__ import annotations
 
 import datetime
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -660,6 +661,95 @@ def check_csp_reporting(headers: Headers, csp: dict[str, list[str]]) -> list[Fin
                 "legitimate scripts blocked by an over-strict policy stay "
                 "invisible, and attack probes leave no trace server-side."),
         fix="Add report-uri https://example.com/csp-reports (simple) or the report-to + Reporting-Endpoints pair",
+    )]
+
+
+_REPORTING_ENDPOINT_RE = re.compile(
+    r"([A-Za-z0-9_-]+)\s*=\s*(?:\"([^\"]*)\"|([^,\s]+))")
+
+
+def _parse_reporting_endpoint_groups(headers: Headers) -> list[str]:
+    """Group names declared by the Reporting-Endpoints header.
+
+    Format is comma-separated ``group="url"`` pairs; unquoted URLs are
+    accepted too, since some servers send them that way. Group names are
+    lowercased (the CSP ``report-to`` values they are matched against are
+    lowercased by ``parse_csp``), and first-seen order is kept.
+    """
+    groups: list[str] = []
+    for value in all_values(headers, "reporting-endpoints"):
+        for match in _REPORTING_ENDPOINT_RE.finditer(value):
+            name = match.group(1).lower()
+            if name not in groups:
+                groups.append(name)
+    return groups
+
+
+def _nel_report_to_group(headers: Headers) -> str | None:
+    """The endpoint group a NEL header reports to, or None.
+
+    NEL is a JSON object (``{"report_to": "group", ...}``). Malformed JSON
+    or a missing ``report_to`` just means no NEL reference — the header is
+    never a finding of this check, so failures are swallowed, not raised.
+    """
+    raw = get(headers, "nel")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    group = data.get("report_to")
+    return group.lower() if isinstance(group, str) and group else None
+
+
+def check_reporting_endpoints_unused(headers: Headers,
+                                     csp: dict[str, list[str]]) -> list[Finding]:
+    """Reporting-Endpoints groups no report consumer references.
+
+    The reverse of the dangling ``report-to`` check: a ``Reporting-Endpoints``
+    header can define endpoint groups that nothing ever uses. A group only
+    receives reports when a CSP ``report-to`` directive or a NEL header's
+    ``report_to`` names it — an unreferenced group is dead config the site
+    owner believes is collecting reports. This is an INFO note, never a
+    penalty: the header itself is harmless, it just does nothing.
+
+    A legacy ``Report-To`` header alone does NOT count as a reference: it
+    defines its own (legacy) groups rather than consuming
+    ``Reporting-Endpoints`` groups, so a site reporting only through the
+    legacy header still leaves its ``Reporting-Endpoints`` groups unused.
+    """
+    name = "Reporting-Endpoints"
+    defined = _parse_reporting_endpoint_groups(headers)
+    if not defined:
+        return []
+    referenced = set(csp.get("report-to", []))
+    nel_group = _nel_report_to_group(headers)
+    if nel_group is not None:
+        referenced.add(nel_group)
+    unused = [group for group in defined if group not in referenced]
+    if not unused:
+        return [Finding(
+            check=name, header=name,
+            status="pass", severity="OK", score_delta=0,
+            summary="Every Reporting-Endpoints group is referenced (CSP report-to / NEL).",
+        )]
+    unused_str = ", ".join(unused)
+    return [Finding(
+        check=name, header=name,
+        status="info", severity="INFO", score_delta=0,
+        summary=(f"Reporting-Endpoints defines unused endpoint group(s): "
+                 f"{unused_str} — no CSP report-to or NEL references them."),
+        detail=("A Reporting-Endpoints group only receives reports when a "
+                "CSP report-to directive or a NEL header's report_to names "
+                "it. Browsers never send anything to an unreferenced group, "
+                "so the endpoint is dead config the site owner may believe "
+                "is collecting reports."),
+        fix=(f"Reference the group from CSP (report-to {unused[0]}) or NEL "
+             f"(\"report_to\": \"{unused[0]}\"), or remove the unused group "
+             f"from the Reporting-Endpoints header."),
     )]
 
 
@@ -2209,6 +2299,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
                                    meta.get("hsts_preload", "unchecked"))
     findings += check_security_txt(meta.get("security_txt", "unchecked"))
     findings += check_csp(headers)
+    findings += check_reporting_endpoints_unused(headers, csp_directives)
     findings += check_csp_upgrade_insecure_requests(csp_directives, scheme)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)

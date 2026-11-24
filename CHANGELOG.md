@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- Reporting-Endpoints present-but-unused note: a `Reporting-Endpoints`
+  header defining endpoint groups that no CSP `report-to` directive or NEL
+  `report_to` references gets an INFO note (no penalty) — the endpoint is
+  dead config, since browsers only send reports to groups a consumer names.
+  Groups referenced by CSP `report-to` or NEL earn an OK pass; a legacy
+  `Report-To` header alone does not count as a reference. Covered by 11 new
+  tests in `tests/test_reporting_endpoints.py`.
 - `--sri` preload audit: `<link rel="preload" as="script">` / `as="style"`
   resources are now included in the missing-integrity audit (MED, -4 each)
   alongside script/stylesheet tags, since they fetch early like the tags
