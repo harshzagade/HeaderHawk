@@ -770,6 +770,79 @@ def check_reporting_endpoints_unused(headers: Headers,
     )]
 
 
+def _parse_report_to_groups(headers: Headers) -> list[str]:
+    """Group names declared by the legacy Report-To header.
+
+    The header is JSON: either a single ``{"group": "name", ...}`` object
+    or a list of such objects. Malformed JSON, non-object entries, and
+    objects without a string ``group`` declare nothing — the header is
+    never a finding of the NEL check, so failures are swallowed, not
+    raised. Names are lowercased (the NEL ``report_to`` value they are
+    matched against is lowercased by ``_nel_report_to_group``), and
+    first-seen order is kept.
+    """
+    groups: list[str] = []
+    for raw in all_values(headers, "report-to"):
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("group")
+            if isinstance(name, str) and name:
+                name = name.lower()
+                if name not in groups:
+                    groups.append(name)
+    return groups
+
+
+def check_nel_dangling_report_to(headers: Headers) -> list[Finding]:
+    """A NEL header whose report_to names no defined endpoint group.
+
+    The mirror of the Reporting-Endpoints check: NEL's ``report_to`` only
+    delivers reports when the named group is defined by a
+    ``Reporting-Endpoints`` header (modern) or a legacy ``Report-To``
+    header (NEL's original home). A name matching neither is dead config
+    the site owner believes is collecting network-error reports, while
+    browsers silently drop every report. This is an INFO note, never a
+    penalty: the header itself is harmless, it just does nothing.
+
+    Silent when NEL is absent, malformed, or carries no ``report_to`` —
+    a NEL header with no target group is inert, not a finding.
+    """
+    name = "NEL"
+    group = _nel_report_to_group(headers)
+    if group is None:
+        return []
+    defined = _parse_reporting_endpoint_groups(headers)
+    defined += [g for g in _parse_report_to_groups(headers)
+                if g not in defined]
+    if group in defined:
+        return [Finding(
+            check=name, header=name,
+            status="pass", severity="OK", score_delta=0,
+            summary=f"NEL reports to a defined endpoint group ('{group}').",
+        )]
+    return [Finding(
+        check=name, header=name,
+        status="info", severity="INFO", score_delta=0,
+        summary=(f"NEL names endpoint group '{group}', but no Report-To or "
+                 f"Reporting-Endpoints header defines it — network-error "
+                 f"reports go nowhere."),
+        detail=("A NEL header's report_to only delivers reports when the "
+                "named group is defined by a Reporting-Endpoints or legacy "
+                "Report-To header. Browsers drop reports addressed to an "
+                "undefined group, so the NEL configuration is dead config "
+                "the site owner may believe is collecting reports."),
+        fix=(f"Define the group (Reporting-Endpoints: {group}="
+             f"\"https://example.com/nel-reports\") or change the NEL "
+             f"report_to to a group an endpoint header defines."),
+    )]
+
+
 def check_csp_report_only(headers: Headers, enforcing_present: bool) -> list[Finding]:
     """Content-Security-Policy-Report-Only presence vs. enforcement.
 
@@ -2317,6 +2390,7 @@ def analyze(headers: Headers, scheme: str = "https", meta: dict | None = None) -
     findings += check_security_txt(meta.get("security_txt", "unchecked"))
     findings += check_csp(headers)
     findings += check_reporting_endpoints_unused(headers, csp_directives)
+    findings += check_nel_dangling_report_to(headers)
     findings += check_csp_upgrade_insecure_requests(csp_directives, scheme)
     findings += check_x_content_type_options(headers)
     findings += check_x_frame_options(headers, csp_directives)

@@ -2,6 +2,7 @@
 
 ## Unreleased
 ### Added
+- NEL dangling `report_to` note: a `NEL` header whose `report_to` names an endpoint group that no `Reporting-Endpoints` or legacy `Report-To` header defines gets an INFO note (no penalty) — the configuration is dead config, since browsers drop reports addressed to a group with no endpoint. Groups that are defined earn an OK pass; NEL absent, malformed, or without a `report_to` stays silent. Covered by 10 new tests in `tests/test_nel_dangling_report_to.py`.
 - Reporting-Endpoints present-but-unused note: a `Reporting-Endpoints`
   header defining endpoint groups that no CSP `report-to` directive or NEL
   `report_to` references gets an INFO note (no penalty) — the endpoint is
